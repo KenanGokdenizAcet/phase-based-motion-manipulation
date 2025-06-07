@@ -21,8 +21,8 @@ public class MotionMagnificationProcessor : MonoBehaviour
     private float magnitudeThreshold = 0.01f;
     private float magnitudeScale = 1.0f;
 
-    // Enhanced Bandpass Filter Parameters
-    [Header("Spatial Frequency Bandpass Filter Settings")]
+    // Enhanced Bandpass Filter Parameters - now applied to phase delta
+    [Header("Phase Delta Bandpass Filter Settings")]
     [SerializeField] private bool applyBandpassFilter = true;
     [SerializeField] [Range(0.0f, 1.0f)] private float lowFrequencyCutoff = 0.05f;
     [SerializeField] [Range(0.0f, 1.0f)] private float highFrequencyCutoff = 0.4f;
@@ -32,16 +32,6 @@ public class MotionMagnificationProcessor : MonoBehaviour
     [SerializeField] [Range(0.5f, 3.0f)] private float motionSensitivity = 1.5f;
     [SerializeField] private bool enhanceEdges = true;
     [SerializeField] [Range(0.0f, 2.0f)] private float edgeEnhancement = 0.8f;
-    
-    // DC Component preservation
-    [Header("DC Component Preservation")]
-    [SerializeField] private bool preserveDCComponent = true;
-    [SerializeField] [Range(0.0f, 0.1f)] private float dcPreservationRadius = 0.02f;
-    
-    // Normalization parameters
-    [Header("Normalization Settings")]
-    [SerializeField] private bool applyAdaptiveNormalization = true;
-    [SerializeField] [Range(0.0f, 1.0f)] private float normalizationStrength = 0.8f;
     
     // Thread Group Size - must match compute shader
     private const int GROUP_SIZE_X = 32;
@@ -63,10 +53,6 @@ public class MotionMagnificationProcessor : MonoBehaviour
     private ComputeBuffer bitRevIndicesBuffer;
     private ComputeBuffer twiddleFactorsBuffer;
     
-    // Normalization buffers
-    private ComputeBuffer minMaxBuffer;
-    private ComputeBuffer originalMinMaxBuffer;
-    
     // Materials
     private Material rgbToYiqMaterial;
     private Material yiqToRgbMaterial;
@@ -76,7 +62,6 @@ public class MotionMagnificationProcessor : MonoBehaviour
     private Material blurMaterial;
     private Material extractYMaterial;
     private Material combineChannelsMaterial;
-    private Material normalizeMaterial;
     
     // Kernel IDs
     private int computeBitRevIndicesKernel;
@@ -94,11 +79,7 @@ public class MotionMagnificationProcessor : MonoBehaviour
     private int bitRevByColKernel;
     private int butterflyByRowKernel;
     private int butterflyByColKernel;
-    private int applyBandpassFilterKernel;
     private int processPhaseDifferenceKernel;
-    private int computeMinMaxKernel;
-    private int normalizeTextureKernel;
-    private int applyBandpassFilterWithDCKernel;
     
     private bool isFirstFrame = true;
     private bool isInitialized = false;
@@ -121,7 +102,6 @@ public class MotionMagnificationProcessor : MonoBehaviour
                            CreateMaterial("Hidden/ExtractRedChannel");
         combineChannelsMaterial = CreateMaterial("Hidden/CombineYIQChannels") ?? 
                                  new Material(Shader.Find("Unlit/Texture"));
-        normalizeMaterial = CreateMaterial("Hidden/NormalizeTexture");
     }
     
     private Material CreateMaterial(string shaderName)
@@ -144,8 +124,6 @@ public class MotionMagnificationProcessor : MonoBehaviour
         ReleaseBuffer(ref previousComplexBuffer2);
         ReleaseBuffer(ref bitRevIndicesBuffer);
         ReleaseBuffer(ref twiddleFactorsBuffer);
-        ReleaseBuffer(ref minMaxBuffer);
-        ReleaseBuffer(ref originalMinMaxBuffer);
         
         // Release all textures
         foreach (var texture in textures.Values)
@@ -163,7 +141,6 @@ public class MotionMagnificationProcessor : MonoBehaviour
         DestroyMaterial(ref blurMaterial);
         DestroyMaterial(ref extractYMaterial);
         DestroyMaterial(ref combineChannelsMaterial);
-        DestroyMaterial(ref normalizeMaterial);
     }
     
     private void ReleaseBuffer(ref ComputeBuffer buffer)
@@ -221,7 +198,6 @@ public class MotionMagnificationProcessor : MonoBehaviour
         CreateTexture("yChannelTexture", width, height, RenderTextureFormat.RFloat);
         CreateTexture("previousYChannelTexture", width, height, RenderTextureFormat.RFloat);
         CreateTexture("processedYTexture", width, height, RenderTextureFormat.RFloat);
-        CreateTexture("normalizedYTexture", width, height, RenderTextureFormat.RFloat);
         
         // FFT result textures
         CreateTexture("currentDFTTexture", width, height, RenderTextureFormat.ARGBFloat);
@@ -241,10 +217,6 @@ public class MotionMagnificationProcessor : MonoBehaviour
         
         bitRevIndicesBuffer = new ComputeBuffer(Mathf.Max(width, height), sizeof(int));
         twiddleFactorsBuffer = new ComputeBuffer(Mathf.Max(width, height) / 2, complexSize);
-        
-        // Normalization buffers (min, max values)
-        minMaxBuffer = new ComputeBuffer(2, sizeof(float));
-        originalMinMaxBuffer = new ComputeBuffer(2, sizeof(float));
 
         // Get kernel IDs from FFT compute shader
         computeBitRevIndicesKernel = fftComputeShader.FindKernel("ComputeBitRevIndices");
@@ -262,20 +234,6 @@ public class MotionMagnificationProcessor : MonoBehaviour
         bitRevByColKernel = fftComputeShader.FindKernel("BitRevByCol");
         butterflyByRowKernel = fftComputeShader.FindKernel("ButterflyByRow");
         butterflyByColKernel = fftComputeShader.FindKernel("ButterflyByCol");
-        applyBandpassFilterKernel = fftComputeShader.FindKernel("ApplyBandpassFilter");
-        
-        // Try to find enhanced kernels
-        try
-        {
-            applyBandpassFilterWithDCKernel = fftComputeShader.FindKernel("ApplyBandpassFilterWithDC");
-            computeMinMaxKernel = fftComputeShader.FindKernel("ComputeMinMax");
-            normalizeTextureKernel = fftComputeShader.FindKernel("NormalizeTexture");
-        }
-        catch
-        {
-            Debug.LogWarning("Enhanced kernels not found in compute shader. Using fallback methods.");
-            applyBandpassFilterWithDCKernel = applyBandpassFilterKernel;
-        }
 
         // Get kernel ID from phase difference compute shader
         if (phaseDifferenceComputeShader != null)
@@ -456,49 +414,6 @@ public class MotionMagnificationProcessor : MonoBehaviour
         Graphics.Blit(null, outputTexture, combineChannelsMaterial);
     }
     
-    // Enhanced spatial frequency domain bandpass filter with DC preservation
-    private void ApplyBandpassFilter(ComputeBuffer inputBuffer, ComputeBuffer outputBuffer)
-    {
-        if (!applyBandpassFilter)
-        {
-            if (inputBuffer != outputBuffer)
-            {
-                int size = width * height;
-                int threadsPerGroup = 64;
-                int numGroups = Mathf.CeilToInt(size / (float)threadsPerGroup);
-                
-                fftComputeShader.SetBuffer(conjugateComplexKernel, "Src", inputBuffer);
-                fftComputeShader.SetBuffer(conjugateComplexKernel, "Dst", outputBuffer);
-                fftComputeShader.Dispatch(conjugateComplexKernel, numGroups, 1, 1);
-            }
-            return;
-        }
-        
-        // Use enhanced kernel if available
-        int kernelToUse = (applyBandpassFilterWithDCKernel != applyBandpassFilterKernel && preserveDCComponent) 
-            ? applyBandpassFilterWithDCKernel 
-            : applyBandpassFilterKernel;
-        
-        // Enhanced frequency domain filtering parameters
-        fftComputeShader.SetInt("WIDTH", width);
-        fftComputeShader.SetInt("HEIGHT", height);
-        fftComputeShader.SetFloat("_LowFreqCutoff", lowFrequencyCutoff);
-        fftComputeShader.SetFloat("_HighFreqCutoff", highFrequencyCutoff);
-        fftComputeShader.SetFloat("_FilterSteepness", filterSteepness);
-        
-        // DC preservation parameters
-        fftComputeShader.SetBool("_PreserveDC", preserveDCComponent);
-        fftComputeShader.SetFloat("_DCRadius", dcPreservationRadius);
-        
-        // Additional motion enhancement parameters
-        fftComputeShader.SetFloat("_MotionSensitivity", motionSensitivity);
-        fftComputeShader.SetFloat("_EdgeEnhancement", enhanceEdges ? edgeEnhancement : 0.0f);
-        
-        fftComputeShader.SetBuffer(kernelToUse, "Src", inputBuffer);
-        fftComputeShader.SetBuffer(kernelToUse, "Dst", outputBuffer);
-        DispatchCompute(kernelToUse, width, height);
-    }
-    
     private void ConvertComplexBufferToTexture(ComputeBuffer complexBuffer, RenderTexture outputTexture)
     {
         fftComputeShader.SetInt("WIDTH", width);
@@ -506,45 +421,6 @@ public class MotionMagnificationProcessor : MonoBehaviour
         fftComputeShader.SetBuffer(convertComplexMagToTexKernel, "Src", complexBuffer);
         fftComputeShader.SetTexture(convertComplexMagToTexKernel, "DstTex", outputTexture);
         DispatchCompute(convertComplexMagToTexKernel, width, height);
-    }
-    
-    // Store original Y channel statistics for normalization
-    private void ComputeOriginalMinMax(RenderTexture yChannelTexture)
-    {
-        if (computeMinMaxKernel == 0) return;
-        
-        fftComputeShader.SetTexture(computeMinMaxKernel, "InputTex", yChannelTexture);
-        fftComputeShader.SetBuffer(computeMinMaxKernel, "MinMaxBuffer", originalMinMaxBuffer);
-        fftComputeShader.SetInt("WIDTH", width);
-        fftComputeShader.SetInt("HEIGHT", height);
-        DispatchCompute(computeMinMaxKernel, 1, 1);
-    }
-    
-    // Apply adaptive normalization to preserve original brightness range
-    private void ApplyAdaptiveNormalization(RenderTexture inputTexture, RenderTexture outputTexture)
-    {
-        if (!applyAdaptiveNormalization || normalizeTextureKernel == 0)
-        {
-            Graphics.Blit(inputTexture, outputTexture);
-            return;
-        }
-        
-        // Compute current min/max
-        fftComputeShader.SetTexture(computeMinMaxKernel, "InputTex", inputTexture);
-        fftComputeShader.SetBuffer(computeMinMaxKernel, "MinMaxBuffer", minMaxBuffer);
-        fftComputeShader.SetInt("WIDTH", width);
-        fftComputeShader.SetInt("HEIGHT", height);
-        DispatchCompute(computeMinMaxKernel, 1, 1);
-        
-        // Apply normalization
-        fftComputeShader.SetTexture(normalizeTextureKernel, "InputTex", inputTexture);
-        fftComputeShader.SetTexture(normalizeTextureKernel, "OutputTex", outputTexture);
-        fftComputeShader.SetBuffer(normalizeTextureKernel, "CurrentMinMax", minMaxBuffer);
-        fftComputeShader.SetBuffer(normalizeTextureKernel, "TargetMinMax", originalMinMaxBuffer);
-        fftComputeShader.SetFloat("_NormalizationStrength", normalizationStrength);
-        fftComputeShader.SetInt("WIDTH", width);
-        fftComputeShader.SetInt("HEIGHT", height);
-        DispatchCompute(normalizeTextureKernel, width, height);
     }
 
     private void OnRenderImage(RenderTexture source, RenderTexture destination)
@@ -659,7 +535,7 @@ public class MotionMagnificationProcessor : MonoBehaviour
         RenderTexture.active = null;
     }
     
-    // Enhanced phase difference processing with magnitude preservation
+    // Updated method - now passes bandpass filter parameters to phase difference shader
     private void ProcessPhaseDifferenceWithComputeShader(RenderTexture currentDFT, RenderTexture previousDFT, RenderTexture outputDFT)
     {
         if (phaseDifferenceComputeShader == null)
@@ -669,19 +545,29 @@ public class MotionMagnificationProcessor : MonoBehaviour
             return;
         }
         
-        // Set parameters for the phase difference shader
+        // Set input/output textures
         phaseDifferenceComputeShader.SetTexture(processPhaseDifferenceKernel, "_CurrentDFT", currentDFT);
         phaseDifferenceComputeShader.SetTexture(processPhaseDifferenceKernel, "_PreviousDFT", previousDFT);
         phaseDifferenceComputeShader.SetTexture(processPhaseDifferenceKernel, "_OutputDFT", outputDFT);
         
+        // Phase difference parameters
         phaseDifferenceComputeShader.SetFloat("_PhaseScale", phaseScale);
         phaseDifferenceComputeShader.SetFloat("_MagnitudeThreshold", magnitudeThreshold);
         phaseDifferenceComputeShader.SetFloat("_MagnitudeScale", magnitudeScale);
+        
+        // Dimensions
         phaseDifferenceComputeShader.SetInt("_Width", width);
         phaseDifferenceComputeShader.SetInt("_Height", height);
         
-        // Enable phase-only processing (preserve magnitude)
-        phaseDifferenceComputeShader.SetBool("_PreserveMagnitude", true);
+        // Bandpass filter parameters - now applied to phase delta
+        phaseDifferenceComputeShader.SetBool("_ApplyBandpassFilter", applyBandpassFilter);
+        phaseDifferenceComputeShader.SetFloat("_LowFreqCutoff", lowFrequencyCutoff);
+        phaseDifferenceComputeShader.SetFloat("_HighFreqCutoff", highFrequencyCutoff);
+        phaseDifferenceComputeShader.SetFloat("_FilterSteepness", filterSteepness);
+        
+        // Motion enhancement parameters
+        phaseDifferenceComputeShader.SetFloat("_MotionSensitivity", motionSensitivity);
+        phaseDifferenceComputeShader.SetFloat("_EdgeEnhancement", enhanceEdges ? edgeEnhancement : 0.0f);
         
         // Dispatch compute shader
         int groupsX = Mathf.CeilToInt(width / (float)GROUP_SIZE_X);
@@ -697,32 +583,26 @@ public class MotionMagnificationProcessor : MonoBehaviour
         PadTexture(textures["yiqTexture"], textures["paddedTexture"]);
         ExtractYChannel(textures["paddedTexture"], textures["yChannelTexture"]);
         
-        // Store original Y channel statistics before processing
-        ComputeOriginalMinMax(textures["yChannelTexture"]);
-        
         // Convert previous frame to YIQ
         Graphics.Blit(textures["previousSourceTexture"], textures["previousYiqTexture"], rgbToYiqMaterial);
         PadTexture(textures["previousYiqTexture"], textures["previousPaddedTexture"]);
         ExtractYChannel(textures["previousPaddedTexture"], textures["previousYChannelTexture"]);
         
-        // Process with FFT (includes spatial frequency bandpass filtering with DC preservation)
+        // Process with FFT (NO BANDPASS FILTER HERE - it's now in phase difference)
         PerformFFT(textures["yChannelTexture"], complexBuffer1, complexBuffer2, textures["currentDFTTexture"]);
         PerformFFT(textures["previousYChannelTexture"], previousComplexBuffer1, previousComplexBuffer2, textures["previousDFTTexture"]);
         
-        // Use compute shader for phase difference processing (phase-only, preserves magnitude)
+        // Use compute shader for phase difference processing (with bandpass on phase delta)
         ProcessPhaseDifferenceWithComputeShader(textures["currentDFTTexture"], textures["previousDFTTexture"], textures["modifiedDFTTexture"]);
         
         // Perform IFFT on the modified DFT texture
         PerformIFFT(textures["modifiedDFTTexture"], textures["processedYTexture"]);
         
-        // Apply adaptive normalization to preserve original brightness range
-        ApplyAdaptiveNormalization(textures["processedYTexture"], textures["normalizedYTexture"]);
-        
         // Apply anti-aliasing
-        ApplyAntiAliasing(textures["normalizedYTexture"], textures["normalizedYTexture"]);
+        ApplyAntiAliasing(textures["processedYTexture"], textures["processedYTexture"]);
         
         // Combine channels
-        CombineYIQChannels(textures["normalizedYTexture"], textures["paddedTexture"], textures["destinationTexture"]);
+        CombineYIQChannels(textures["processedYTexture"], textures["paddedTexture"], textures["destinationTexture"]);
         
         // Set YIQ adjustment parameters
         yiqToRgbMaterial.SetFloat("_YMultiplier", yMultiplier);
@@ -739,7 +619,7 @@ public class MotionMagnificationProcessor : MonoBehaviour
         Graphics.Blit(textures["sourceTexture"], textures["previousSourceTexture"]);
     }
 
-    // FFT Implementation with Enhanced Bandpass Filtering and DC Preservation
+    // FFT Implementation - BANDPASS FILTER REMOVED
     private void PerformFFT(RenderTexture yTexture, ComputeBuffer outputBuffer1, ComputeBuffer outputBuffer2, RenderTexture outputTexture)
     {
         fftComputeShader.SetInt("WIDTH", width);
@@ -801,15 +681,6 @@ public class MotionMagnificationProcessor : MonoBehaviour
             ComputeBuffer temp = src;
             src = dst;
             dst = temp;
-        }
-        
-        // Apply enhanced spatial frequency domain bandpass filter with DC preservation
-        if (applyBandpassFilter)
-        {
-            ApplyBandpassFilter(src, dst);
-            ComputeBuffer tempAfterFilter = src;
-            src = dst;
-            dst = tempAfterFilter;
         }
 
         fftComputeShader.SetBuffer(convertComplexToTexRGKernel, "Src", src);

@@ -1,8 +1,12 @@
 #pragma kernel ProcessPhaseDifference
+#pragma kernel GenerateSpatialFrequencyMap
+#pragma kernel GenerateBandpassWeights
+#pragma kernel GenerateFilteredPhaseDelta
 
 // Thread group size
 #define GROUP_SIZE_X 32
 #define GROUP_SIZE_Y 32
+#define PI 3.14159265359
 
 // Input textures (RG format - Real and Imaginary parts)
 Texture2D<float4> _CurrentDFT;
@@ -11,12 +15,24 @@ Texture2D<float4> _PreviousDFT;
 // Output texture (RG format - Real and Imaginary parts)
 RWTexture2D<float4> _OutputDFT;
 
-// Parameters
+// Phase difference parameters
 float _PhaseScale;
 float _MagnitudeThreshold;
 float _MagnitudeScale;
+
+// Dimensions
 int _Width;
 int _Height;
+
+// Bandpass filter parameters - now applied to phase delta (changed from bool to int)
+int _ApplyBandpassFilter;
+float _LowFreqCutoff;
+float _HighFreqCutoff;
+float _FilterSteepness;
+
+// Motion enhancement parameters
+float _MotionSensitivity;
+float _EdgeEnhancement;
 
 // Complex number operations
 float2 complex_multiply(float2 a, float2 b)
@@ -47,11 +63,62 @@ float2 complex_exp(float phase)
 // Normalize phase to [-pi, pi] range
 float normalize_phase(float phase)
 {
-    while (phase > 3.14159265359)
-        phase -= 2.0 * 3.14159265359;
-    while (phase < -3.14159265359)
-        phase += 2.0 * 3.14159265359;
+    while (phase > PI)
+        phase -= 2.0 * PI;
+    while (phase < -PI)
+        phase += 2.0 * PI;
     return phase;
+}
+
+// Improved spatial frequency calculation
+float calculate_spatial_frequency(uint2 coord, int width, int height)
+{
+    // Convert to centered coordinates (-0.5 to 0.5)
+    float fx = ((float)coord.x / (float)width) - 0.5;
+    float fy = ((float)coord.y / (float)height) - 0.5;
+    
+    // Calculate normalized frequency magnitude
+    float freq = sqrt(fx * fx + fy * fy);
+    
+    // Scale to [0, 1] range (max frequency is sqrt(0.5^2 + 0.5^2) = ~0.707)
+    return min(freq / 0.707, 1.0);
+}
+
+// Enhanced spatial frequency bandpass filter with sharper response
+float calculate_bandpass_weight(float spatialFreq)
+{
+    if (_ApplyBandpassFilter == 0)
+        return 1.0;
+    
+    // Sharp bandpass filter with steeper transitions
+    float weight = 1.0;
+    
+    // Low frequency cutoff (high-pass component)
+    if (spatialFreq < _LowFreqCutoff)
+    {
+        float ratio = spatialFreq / max(_LowFreqCutoff, 0.001);
+        weight *= pow(ratio, _FilterSteepness);
+    }
+    
+    // High frequency cutoff (low-pass component) 
+    if (spatialFreq > _HighFreqCutoff)
+    {
+        float ratio = (1.0 - spatialFreq) / max(1.0 - _HighFreqCutoff, 0.001);
+        weight *= pow(ratio, _FilterSteepness);
+    }
+    
+    // Apply motion sensitivity enhancement
+    weight *= _MotionSensitivity;
+    
+    // Edge enhancement for mid-to-high frequency components
+    if (spatialFreq > _LowFreqCutoff && spatialFreq < _HighFreqCutoff)
+    {
+        float edgeFactor = 1.0 + _EdgeEnhancement * 
+                          sin(PI * (spatialFreq - _LowFreqCutoff) / (_HighFreqCutoff - _LowFreqCutoff));
+        weight *= edgeFactor;
+    }
+    
+    return max(weight, 0.0);
 }
 
 [numthreads(GROUP_SIZE_X, GROUP_SIZE_Y, 1)]
@@ -88,11 +155,15 @@ void ProcessPhaseDifference(uint3 id : SV_DispatchThreadID)
     // Calculate phase difference: delta = prevPhase - currentPhase
     float delta = normalize_phase(previousPhase - currentPhase);
     
-    // Apply phase magnification
-    float modifiedPhaseDelta = delta * _PhaseScale;
+    // *** KEY CHANGE: Apply bandpass filter to phase delta ***
+    float spatialFreq = calculate_spatial_frequency(id.xy, _Width, _Height);
+    float bandpassWeight = calculate_bandpass_weight(spatialFreq);
     
-    // Calculate new phase: newPhase = currentPhase + magnified_delta
-    float newPhase = currentPhase + modifiedPhaseDelta;
+    // Filter the phase delta based on spatial frequency
+    float filteredDelta = delta * bandpassWeight;
+    
+    // Apply phase magnification to the FILTERED delta
+    float modifiedPhaseDelta = filteredDelta * _PhaseScale;
     
     // Apply magnitude scaling if needed
     float newMagnitude = currentMagnitude * _MagnitudeScale;
@@ -103,9 +174,87 @@ void ProcessPhaseDifference(uint3 id : SV_DispatchThreadID)
     // Apply phase modification: modifiedComplex = currentComplex * exp(1.0j * modifiedPhaseDelta)
     float2 modifiedComplex = complex_multiply(currentComplex, expTerm);
     
-    // Alternative approach: reconstruct from magnitude and new phase
-    // float2 modifiedComplex = complex_from_polar(newMagnitude, newPhase);
-    
     // Write result
     _OutputDFT[id.xy] = float4(modifiedComplex.x, modifiedComplex.y, currentDFT.b, currentDFT.a);
+}
+
+// Debug kernel: Generate spatial frequency visualization
+[numthreads(GROUP_SIZE_X, GROUP_SIZE_Y, 1)]
+void GenerateSpatialFrequencyMap(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= (uint)_Width || id.y >= (uint)_Height)
+        return;
+    
+    float spatialFreq = calculate_spatial_frequency(id.xy, _Width, _Height);
+    
+    // Output as grayscale (0 = low frequency, 1 = high frequency)
+    _OutputDFT[id.xy] = float4(spatialFreq, spatialFreq, spatialFreq, 1.0);
+}
+
+// Debug kernel: Generate bandpass weights visualization
+[numthreads(GROUP_SIZE_X, GROUP_SIZE_Y, 1)]
+void GenerateBandpassWeights(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= (uint)_Width || id.y >= (uint)_Height)
+        return;
+    
+    float spatialFreq = calculate_spatial_frequency(id.xy, _Width, _Height);
+    float weight = calculate_bandpass_weight(spatialFreq);
+    
+    // Normalize weight for visualization (clamp to [0,1])
+    weight = saturate(weight / max(_MotionSensitivity * 2.0, 1.0));
+    
+    // Color coding: Blue = rejected, Green = passed, Red = enhanced
+    float3 color;
+    if (weight < 0.1)
+        color = float3(0, 0, 1); // Blue for rejected frequencies
+    else if (weight > 1.5)
+        color = float3(1, 0, 0); // Red for enhanced frequencies  
+    else
+        color = float3(0, weight, 0); // Green scaled by weight
+    
+    _OutputDFT[id.xy] = float4(color, 1.0);
+}
+
+// Debug kernel: Generate filtered phase delta visualization
+[numthreads(GROUP_SIZE_X, GROUP_SIZE_Y, 1)]
+void GenerateFilteredPhaseDelta(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= (uint)_Width || id.y >= (uint)_Height)
+        return;
+    
+    // Sample current and previous DFT values
+    float4 currentDFT = _CurrentDFT[id.xy];
+    float4 previousDFT = _PreviousDFT[id.xy];
+    
+    // Extract complex numbers
+    float2 currentComplex = currentDFT.rg;
+    float2 previousComplex = previousDFT.rg;
+    
+    // Calculate magnitudes
+    float currentMagnitude = complex_magnitude(currentComplex);
+    float previousMagnitude = complex_magnitude(previousComplex);
+    
+    // Check magnitude threshold
+    if (currentMagnitude < _MagnitudeThreshold || previousMagnitude < _MagnitudeThreshold)
+    {
+        _OutputDFT[id.xy] = float4(0, 0, 0, 1);
+        return;
+    }
+    
+    // Calculate phase difference
+    float currentPhase = complex_phase(currentComplex);
+    float previousPhase = complex_phase(previousComplex);
+    float delta = normalize_phase(previousPhase - currentPhase);
+    
+    // Apply bandpass filter
+    float spatialFreq = calculate_spatial_frequency(id.xy, _Width, _Height);
+    float bandpassWeight = calculate_bandpass_weight(spatialFreq);
+    float filteredDelta = delta * bandpassWeight;
+    
+    // Normalize for visualization: map [-pi, pi] to [0, 1]
+    float normalizedDelta = (filteredDelta + PI) / (2.0 * PI);
+    
+    // Color code the filtered phase delta
+    _OutputDFT[id.xy] = float4(normalizedDelta, normalizedDelta, normalizedDelta, 1.0);
 }
