@@ -1,7 +1,4 @@
-// Initialize kernel IDs with safe defaults
-        computeMinMaxKernel = -1;
-        normalizeTextureKernel = -1;
-        applyBandpassFilterWithDCKernel = -1;using UnityEngine;
+using UnityEngine;
 using System.Collections.Generic;
 
 [RequireComponent(typeof(Camera))]
@@ -20,14 +17,14 @@ public class MotionMagnificationProcessor : MonoBehaviour
     private float qMultiplier = 1.0f;
     
     // Phase difference parameters
-    [SerializeField] private float phaseScale = 5.0f;
+    [SerializeField] private float phaseScale = 10.0f;
     private float magnitudeThreshold = 0.01f;
     private float magnitudeScale = 1.0f;
 
     // Enhanced Bandpass Filter Parameters
     [Header("Spatial Frequency Bandpass Filter Settings")]
     [SerializeField] private bool applyBandpassFilter = true;
-    [SerializeField] [Range(0.0f, 1.0f)] private float lowFrequencyCutoff = 0.02f;
+    [SerializeField] [Range(0.0f, 1.0f)] private float lowFrequencyCutoff = 0.05f;
     [SerializeField] [Range(0.0f, 1.0f)] private float highFrequencyCutoff = 0.4f;
     [SerializeField] [Range(0.5f, 10.0f)] private float filterSteepness = 3.0f;
     
@@ -39,7 +36,7 @@ public class MotionMagnificationProcessor : MonoBehaviour
     // DC Component preservation
     [Header("DC Component Preservation")]
     [SerializeField] private bool preserveDCComponent = true;
-    [SerializeField] [Range(0.0f, 0.1f)] private float dcPreservationRadius = 0.03f;
+    [SerializeField] [Range(0.0f, 0.1f)] private float dcPreservationRadius = 0.02f;
     
     // Normalization parameters
     [Header("Normalization Settings")]
@@ -105,20 +102,6 @@ public class MotionMagnificationProcessor : MonoBehaviour
     
     private bool isFirstFrame = true;
     private bool isInitialized = false;
-    
-    // Helper method to check if a kernel exists in compute shader
-    private bool HasKernel(ComputeShader shader, string kernelName)
-    {
-        try
-        {
-            shader.FindKernel(kernelName);
-            return true;
-        }
-        catch
-        {
-            return false;
-        }
-    }
 
     private void Start()
     {
@@ -203,11 +186,6 @@ public class MotionMagnificationProcessor : MonoBehaviour
 
     private void InitializeProcessor()
     {
-        // Initialize kernel IDs with safe defaults
-        computeMinMaxKernel = -1;
-        normalizeTextureKernel = -1;
-        applyBandpassFilterWithDCKernel = -1;
-        
         // Get reference to the camera
         Camera cam = GetComponent<Camera>();
         if (cam == null)
@@ -286,51 +264,17 @@ public class MotionMagnificationProcessor : MonoBehaviour
         butterflyByColKernel = fftComputeShader.FindKernel("ButterflyByCol");
         applyBandpassFilterKernel = fftComputeShader.FindKernel("ApplyBandpassFilter");
         
-        // Try to find enhanced kernels safely
+        // Try to find enhanced kernels
         try
         {
-            // Check if kernel exists before trying to find it
-            string[] kernelNames = new string[] { "ApplyBandpassFilterWithDC", "ComputeMinMax", "NormalizeTexture" };
-            
-            // For ApplyBandpassFilterWithDC
-            if (HasKernel(fftComputeShader, "ApplyBandpassFilterWithDC"))
-            {
-                applyBandpassFilterWithDCKernel = fftComputeShader.FindKernel("ApplyBandpassFilterWithDC");
-            }
-            else
-            {
-                Debug.Log("ApplyBandpassFilterWithDC kernel not found, using standard ApplyBandpassFilter");
-                applyBandpassFilterWithDCKernel = applyBandpassFilterKernel;
-            }
-            
-            // For ComputeMinMax
-            if (HasKernel(fftComputeShader, "ComputeMinMax"))
-            {
-                computeMinMaxKernel = fftComputeShader.FindKernel("ComputeMinMax");
-            }
-            else
-            {
-                Debug.LogWarning("ComputeMinMax kernel not found, normalization will be disabled");
-                computeMinMaxKernel = -1;
-            }
-            
-            // For NormalizeTexture
-            if (HasKernel(fftComputeShader, "NormalizeTexture"))
-            {
-                normalizeTextureKernel = fftComputeShader.FindKernel("NormalizeTexture");
-            }
-            else
-            {
-                Debug.LogWarning("NormalizeTexture kernel not found, normalization will be disabled");
-                normalizeTextureKernel = -1;
-            }
+            applyBandpassFilterWithDCKernel = fftComputeShader.FindKernel("ApplyBandpassFilterWithDC");
+            computeMinMaxKernel = fftComputeShader.FindKernel("ComputeMinMax");
+            normalizeTextureKernel = fftComputeShader.FindKernel("NormalizeTexture");
         }
-        catch (System.Exception e)
+        catch
         {
-            Debug.LogWarning($"Error finding enhanced kernels: {e.Message}. Using fallback methods.");
+            Debug.LogWarning("Enhanced kernels not found in compute shader. Using fallback methods.");
             applyBandpassFilterWithDCKernel = applyBandpassFilterKernel;
-            computeMinMaxKernel = -1;
-            normalizeTextureKernel = -1;
         }
 
         // Get kernel ID from phase difference compute shader
@@ -530,29 +474,29 @@ public class MotionMagnificationProcessor : MonoBehaviour
             return;
         }
         
+        // Use enhanced kernel if available
+        int kernelToUse = (applyBandpassFilterWithDCKernel != applyBandpassFilterKernel && preserveDCComponent) 
+            ? applyBandpassFilterWithDCKernel 
+            : applyBandpassFilterKernel;
+        
         // Enhanced frequency domain filtering parameters
         fftComputeShader.SetInt("WIDTH", width);
         fftComputeShader.SetInt("HEIGHT", height);
-        
-        // Adjust low frequency cutoff to preserve DC when needed
-        float adjustedLowFreqCutoff = lowFrequencyCutoff;
-        if (preserveDCComponent)
-        {
-            // Ensure DC component is preserved by setting a minimum cutoff that excludes DC
-            adjustedLowFreqCutoff = Mathf.Max(dcPreservationRadius, lowFrequencyCutoff);
-        }
-        
-        fftComputeShader.SetFloat("_LowFreqCutoff", adjustedLowFreqCutoff);
+        fftComputeShader.SetFloat("_LowFreqCutoff", lowFrequencyCutoff);
         fftComputeShader.SetFloat("_HighFreqCutoff", highFrequencyCutoff);
         fftComputeShader.SetFloat("_FilterSteepness", filterSteepness);
+        
+        // DC preservation parameters
+        fftComputeShader.SetBool("_PreserveDC", preserveDCComponent);
+        fftComputeShader.SetFloat("_DCRadius", dcPreservationRadius);
         
         // Additional motion enhancement parameters
         fftComputeShader.SetFloat("_MotionSensitivity", motionSensitivity);
         fftComputeShader.SetFloat("_EdgeEnhancement", enhanceEdges ? edgeEnhancement : 0.0f);
         
-        fftComputeShader.SetBuffer(applyBandpassFilterKernel, "Src", inputBuffer);
-        fftComputeShader.SetBuffer(applyBandpassFilterKernel, "Dst", outputBuffer);
-        DispatchCompute(applyBandpassFilterKernel, width, height);
+        fftComputeShader.SetBuffer(kernelToUse, "Src", inputBuffer);
+        fftComputeShader.SetBuffer(kernelToUse, "Dst", outputBuffer);
+        DispatchCompute(kernelToUse, width, height);
     }
     
     private void ConvertComplexBufferToTexture(ComputeBuffer complexBuffer, RenderTexture outputTexture)
@@ -567,7 +511,7 @@ public class MotionMagnificationProcessor : MonoBehaviour
     // Store original Y channel statistics for normalization
     private void ComputeOriginalMinMax(RenderTexture yChannelTexture)
     {
-        if (computeMinMaxKernel < 0) return; // Kernel not available
+        if (computeMinMaxKernel == 0) return;
         
         fftComputeShader.SetTexture(computeMinMaxKernel, "InputTex", yChannelTexture);
         fftComputeShader.SetBuffer(computeMinMaxKernel, "MinMaxBuffer", originalMinMaxBuffer);
@@ -579,7 +523,7 @@ public class MotionMagnificationProcessor : MonoBehaviour
     // Apply adaptive normalization to preserve original brightness range
     private void ApplyAdaptiveNormalization(RenderTexture inputTexture, RenderTexture outputTexture)
     {
-        if (!applyAdaptiveNormalization || normalizeTextureKernel < 0 || computeMinMaxKernel < 0)
+        if (!applyAdaptiveNormalization || normalizeTextureKernel == 0)
         {
             Graphics.Blit(inputTexture, outputTexture);
             return;
@@ -730,14 +674,14 @@ public class MotionMagnificationProcessor : MonoBehaviour
         phaseDifferenceComputeShader.SetTexture(processPhaseDifferenceKernel, "_PreviousDFT", previousDFT);
         phaseDifferenceComputeShader.SetTexture(processPhaseDifferenceKernel, "_OutputDFT", outputDFT);
         
-        // Reduce phase scale to minimize color distortion
-        float adjustedPhaseScale = phaseScale * 0.5f; // Reduce by half for stability
-        
-        phaseDifferenceComputeShader.SetFloat("_PhaseScale", adjustedPhaseScale);
+        phaseDifferenceComputeShader.SetFloat("_PhaseScale", phaseScale);
         phaseDifferenceComputeShader.SetFloat("_MagnitudeThreshold", magnitudeThreshold);
         phaseDifferenceComputeShader.SetFloat("_MagnitudeScale", magnitudeScale);
         phaseDifferenceComputeShader.SetInt("_Width", width);
         phaseDifferenceComputeShader.SetInt("_Height", height);
+        
+        // Enable phase-only processing (preserve magnitude)
+        phaseDifferenceComputeShader.SetBool("_PreserveMagnitude", true);
         
         // Dispatch compute shader
         int groupsX = Mathf.CeilToInt(width / (float)GROUP_SIZE_X);
