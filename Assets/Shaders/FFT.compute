@@ -1,0 +1,314 @@
+#pragma kernel ComputeBitRevIndices
+#pragma kernel ComputeTwiddleFactors
+#pragma kernel ConvertTexToComplex
+#pragma kernel ConvertTextureToComplex
+#pragma kernel ConvertComplexToTexRG
+#pragma kernel ConvertComplexMagToTex
+#pragma kernel ConvertComplexMagToTexScaled
+#pragma kernel ConvertComplexPhaseToTex
+#pragma kernel CenterComplex
+#pragma kernel ConjugateComplex
+#pragma kernel DivideComplexByDimensions
+#pragma kernel BitRevByRow
+#pragma kernel BitRevByCol
+#pragma kernel ButterflyByRow
+#pragma kernel ButterflyByCol
+#pragma kernel ApplyBandpassFilter
+
+// Increased thread group size for better GPU utilization
+#define GROUP_SIZE_X 32
+#define GROUP_SIZE_Y 32
+#define PI 3.14159265359f
+#define PI_2 1.57079632679f
+
+// Use float2 for complex numbers to leverage vector operations
+typedef float2 Complex;
+
+int WIDTH;                              // power of 2
+int HEIGHT;                             // power of 2
+int N;                                  // either WIDTH or HEIGHT
+
+RWStructuredBuffer<uint> BitRevIndices;     // size of WIDTH or HEIGHT
+RWStructuredBuffer<Complex> TwiddleFactors; // size of half of WIDTH or HEIGHT
+
+int BUTTERFLY_STRIDE;                   // 2, 4, 8, 16, ..., up to WIDTH (or HEIGHT)
+
+// dimensions are WIDTH x HEIGHT
+Texture2D<float3> SrcTex;
+StructuredBuffer<Complex> Src;          // 1D buffer to represent 2D data
+RWTexture2D<float3> DstTex;
+RWStructuredBuffer<Complex> Dst;        // 1D buffer to represent 2D data
+
+// Bandpass filter parameters
+float _LowFreqCutoff;     // Low frequency cutoff (0-1)
+float _HighFreqCutoff;    // High frequency cutoff (0-1)
+float _FilterSteepness;   // Filter steepness factor
+
+// Optimized complex number operations using vector instructions
+inline Complex ComplexAdd(Complex a, Complex b)
+{
+    return a + b;
+}
+
+inline Complex ComplexSub(Complex a, Complex b)
+{
+    return a - b;
+}
+
+inline Complex ComplexMult(Complex a, Complex b)
+{
+    return float2(a.x * b.x - a.y * b.y, a.x * b.y + a.y * b.x);
+}
+
+inline float ComplexMagnitude(Complex a)
+{
+    return sqrt(dot(a, a)); // Using dot product for better performance
+}
+
+inline float ComplexPhase(Complex a)
+{
+    return atan2(a.y, a.x);
+}
+
+inline Complex ComplexConjugate(Complex a)
+{
+    return float2(a.x, -a.y);
+}
+
+// Optimized bit reversal with early exit
+[numthreads(GROUP_SIZE_X, 1, 1)]
+void ComputeBitRevIndices(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= (uint)N) return; // Bounds check
+    
+    int numBits = firstbithigh(N);
+    uint reversed = 0;
+    uint orig = id.x;
+    
+    // Optimized bit reversal
+    for (int j = 0; j < numBits; ++j)
+    {
+        reversed = (reversed << 1) | (orig & 1);
+        orig >>= 1;
+    }
+    
+    BitRevIndices[id.x] = reversed;
+}
+
+// Optimized twiddle factor computation using sincos
+[numthreads(GROUP_SIZE_X, 1, 1)]
+void ComputeTwiddleFactors(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= (uint)N / 2) return; // Bounds check
+    
+    float phase = -(float)id.x * (2.0f * PI) / (float)N;
+    
+    // Use sincos for better performance
+    float s, c;
+    sincos(phase, s, c);
+    TwiddleFactors[id.x] = float2(c, s);
+}
+
+// Convert texture to complex with bounds checking
+[numthreads(GROUP_SIZE_X, GROUP_SIZE_Y, 1)]
+void ConvertTexToComplex(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= (uint)WIDTH || id.y >= (uint)HEIGHT) return;
+    
+    float real = SrcTex[id.xy].r;
+    Dst[id.y * WIDTH + id.x] = float2(real, 0);
+}
+
+// Converts texture with complex data in RG channels to complex buffer
+[numthreads(GROUP_SIZE_X, GROUP_SIZE_Y, 1)]
+void ConvertTextureToComplex(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= (uint)WIDTH || id.y >= (uint)HEIGHT) return;
+    
+    float2 complex_data = SrcTex[id.xy].rg;
+    Dst[id.y * WIDTH + id.x] = complex_data;
+}
+
+// Writes complex buffer to texture RG channels
+[numthreads(GROUP_SIZE_X, GROUP_SIZE_Y, 1)]
+void ConvertComplexToTexRG(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= (uint)WIDTH || id.y >= (uint)HEIGHT) return;
+    
+    Complex value = Src[id.y * WIDTH + id.x];
+    DstTex[id.xy] = float3(value.x, value.y, 0);
+}
+
+// Optimized magnitude calculation
+[numthreads(GROUP_SIZE_X, GROUP_SIZE_Y, 1)]
+void ConvertComplexMagToTex(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= (uint)WIDTH || id.y >= (uint)HEIGHT) return;
+    
+    float val = ComplexMagnitude(Src[id.y * WIDTH + id.x]);
+    DstTex[id.xy] = float3(val, val, val);
+}
+
+// Optimized scaled magnitude
+[numthreads(GROUP_SIZE_X, GROUP_SIZE_Y, 1)]
+void ConvertComplexMagToTexScaled(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= (uint)WIDTH || id.y >= (uint)HEIGHT) return;
+    
+    float val = ComplexMagnitude(Src[id.y * WIDTH + id.x]);
+    val = log10(val * 10.0 + 1) / 4;
+    DstTex[id.xy] = float3(val, val, val);
+}
+
+// Optimized phase calculation
+[numthreads(GROUP_SIZE_X, GROUP_SIZE_Y, 1)]
+void ConvertComplexPhaseToTex(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= (uint)WIDTH || id.y >= (uint)HEIGHT) return;
+    
+    float val = ComplexPhase(Src[id.y * WIDTH + id.x]);
+    val = abs(val) / PI_2;
+    DstTex[id.xy] = float3(val, val, val);
+}
+
+// Optimized center operation using bitwise AND
+[numthreads(GROUP_SIZE_X, GROUP_SIZE_Y, 1)]
+void CenterComplex(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= (uint)WIDTH || id.y >= (uint)HEIGHT) return;
+    
+    uint pos = id.y * (uint)WIDTH + id.x;
+    if (((id.x + id.y) & 1) != 0) // Using bitwise AND for better performance
+    {
+        Dst[pos] = -Src[pos];
+    }
+    else
+    {
+        Dst[pos] = Src[pos];
+    }
+}
+
+// Optimized conjugate operation
+[numthreads(GROUP_SIZE_X, GROUP_SIZE_Y, 1)]
+void ConjugateComplex(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= (uint)WIDTH || id.y >= (uint)HEIGHT) return;
+    
+    uint pos = id.y * (uint)WIDTH + id.x;
+    Dst[pos] = ComplexConjugate(Src[pos]);
+}
+
+// Optimized division by dimensions
+[numthreads(GROUP_SIZE_X, GROUP_SIZE_Y, 1)]
+void DivideComplexByDimensions(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= (uint)WIDTH || id.y >= (uint)HEIGHT) return;
+    
+    uint pos = id.y * (uint)WIDTH + id.x;
+    float dimProd = (float)WIDTH * (float)HEIGHT;
+    Dst[pos] = Src[pos] / dimProd;
+}
+
+// Optimized bit reversal for rows
+[numthreads(GROUP_SIZE_X, GROUP_SIZE_Y, 1)]
+void BitRevByRow(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= (uint)WIDTH || id.y >= (uint)HEIGHT) return;
+    
+    uint srcPos = id.y * (uint)WIDTH + BitRevIndices[id.x];
+    uint dstPos = id.y * (uint)WIDTH + id.x;
+    Dst[dstPos] = Src[srcPos];
+}
+
+// Optimized bit reversal for columns
+[numthreads(GROUP_SIZE_X, GROUP_SIZE_Y, 1)]
+void BitRevByCol(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= (uint)WIDTH || id.y >= (uint)HEIGHT) return;
+    
+    uint srcPos = BitRevIndices[id.y] * (uint)WIDTH + id.x;
+    uint dstPos = id.y * (uint)WIDTH + id.x;
+    Dst[dstPos] = Src[srcPos];
+}
+
+// Optimized butterfly operation for rows
+[numthreads(GROUP_SIZE_X, GROUP_SIZE_Y, 1)]
+void ButterflyByRow(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= (uint)WIDTH || id.y >= (uint)HEIGHT) return;
+    
+    const uint stride = (uint)BUTTERFLY_STRIDE;
+    const uint grp = id.x / stride;
+    const uint grpIdx = id.x % stride;
+    const uint offset = grp * stride;
+    const uint halfStride = stride / 2;
+    const uint halfStrideIdx = grpIdx % halfStride;
+
+    Complex a = Src[(id.y * (uint)WIDTH) + offset + halfStrideIdx];
+    Complex b = Src[(id.y * (uint)WIDTH) + offset + halfStride + halfStrideIdx];
+    Complex w = TwiddleFactors[halfStrideIdx * (uint)WIDTH / stride];
+    Complex bw = ComplexMult(b, w);
+
+    uint dstPos = (id.y * (uint)WIDTH) + id.x;
+    Dst[dstPos] = (grpIdx < halfStride) ? ComplexAdd(a, bw) : ComplexSub(a, bw);
+}
+
+// Optimized butterfly operation for columns
+[numthreads(GROUP_SIZE_X, GROUP_SIZE_Y, 1)]
+void ButterflyByCol(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= (uint)WIDTH || id.y >= (uint)HEIGHT) return;
+    
+    const uint stride = (uint)BUTTERFLY_STRIDE;
+    const uint grp = id.y / stride;
+    const uint grpIdx = id.y % stride;
+    const uint offset = grp * stride;
+    const uint halfStride = stride / 2;
+    const uint halfStrideIdx = grpIdx % halfStride;
+
+    Complex a = Src[id.x + ((offset + halfStrideIdx) * (uint)WIDTH)];
+    Complex b = Src[id.x + ((offset + halfStride + halfStrideIdx) * (uint)WIDTH)];
+    Complex w = TwiddleFactors[halfStrideIdx * (uint)HEIGHT / stride];
+    Complex bw = ComplexMult(b, w);
+
+    uint dstPos = (id.y * (uint)WIDTH) + id.x;
+    Dst[dstPos] = (grpIdx < halfStride) ? ComplexAdd(a, bw) : ComplexSub(a, bw);
+}
+
+[numthreads(GROUP_SIZE_X, GROUP_SIZE_Y, 1)]
+void ApplyBandpassFilter(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= (uint)WIDTH || id.y >= (uint)HEIGHT) return;
+    
+    uint pos = id.y * (uint)WIDTH + id.x;
+    Complex value = Src[pos];
+    
+    // Calculate normalized frequency (0-1) based on position
+    // Center of the spectrum is (width/2, height/2)
+    float dx = (float)id.x - (float)WIDTH * 0.5f;
+    float dy = (float)id.y - (float)HEIGHT * 0.5f;
+    
+    // Distance from center (normalized to 0-1)
+    float distance = sqrt(dx * dx + dy * dy) / (sqrt(WIDTH * WIDTH + HEIGHT * HEIGHT) * 0.5f);
+    
+    // Apply bandpass filter
+    float filterValue = 1.0f;
+    
+    // Low frequency cutoff (high pass)
+    if (distance < _LowFreqCutoff)
+    {
+        filterValue *= smoothstep(0.0f, _LowFreqCutoff, distance);
+    }
+    
+    // High frequency cutoff (low pass)
+    if (distance > _HighFreqCutoff)
+    {
+        filterValue *= 1.0f - smoothstep(_HighFreqCutoff, 1.0f, distance);
+    }
+    
+    // Apply steepness (optional)
+    filterValue = pow(filterValue, _FilterSteepness);
+    
+    // Apply filter to complex value
+    Dst[pos] = float2(value.x * filterValue, value.y * filterValue);
+}

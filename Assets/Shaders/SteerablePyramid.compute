@@ -1,0 +1,230 @@
+#pragma kernel BuildPyramidLevel
+#pragma kernel ComputePhaseDelta
+#pragma kernel ApplyMotionMagnification
+#pragma kernel AccumulateReconstruction
+#pragma kernel ClearBuffer
+
+#define GROUP_SIZE_X 32
+#define GROUP_SIZE_Y 32
+#define PI 3.14159265359f
+
+// Complex number type
+typedef float2 Complex;
+
+// Global parameters
+int Width;
+int Height;
+int BatchStart;
+int BatchSize;
+float PhaseMag;
+bool Attenuate;
+int FilterIndex;
+
+// Textures
+Texture2D<float4> CurrentDFT;
+Texture2D<float4> ReferenceDFT;
+
+// Buffers
+RWStructuredBuffer<Complex> PyramidFilters; // All pyramid filters
+RWStructuredBuffer<Complex> PhaseDeltas; // Phase differences
+RWStructuredBuffer<Complex> ReconDFT; // Reconstruction buffer
+RWStructuredBuffer<Complex> CurrentPyramidLevels; // Temporary storage for current pyramid levels
+RWStructuredBuffer<Complex> ReferencePyramidLevels; // Temporary storage for reference pyramid levels
+
+// Complex operations
+inline Complex ComplexMultiply(Complex a, Complex b)
+{
+    return float2(a.x * b.x - a.y * b.y, a.x * b.y + a.y * b.x);
+}
+
+inline float ComplexMagnitude(Complex z)
+{
+    return sqrt(z.x * z.x + z.y * z.y);
+}
+
+inline float ComplexPhase(Complex z)
+{
+    return atan2(z.y, z.x);
+}
+
+inline Complex ComplexFromPolar(float mag, float phase)
+{
+    return float2(mag * cos(phase), mag * sin(phase));
+}
+
+inline Complex ComplexExp(float phase)
+{
+    return float2(cos(phase), sin(phase));
+}
+
+inline Complex ComplexConjugate(Complex z)
+{
+    return float2(z.x, -z.y);
+}
+
+// Normalize phase to [-pi, pi]
+float NormalizePhase(float phase)
+{
+    // Using fmod for better performance
+    phase = fmod(phase + PI, 2.0f * PI);
+    if (phase < 0)
+        phase += 2.0f * PI;
+    return phase - PI;
+}
+
+// Build pyramid levels by applying filters in frequency domain
+[numthreads(GROUP_SIZE_X, GROUP_SIZE_Y, 1)]
+void BuildPyramidLevel(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= (uint)Width || id.y >= (uint)Height)
+        return;
+    
+    uint pixelIndex = id.y * Width + id.x;
+    
+    // Get DFT values
+    float4 currentDFTValue = CurrentDFT[id.xy];
+    float4 refDFTValue = ReferenceDFT[id.xy];
+    
+    Complex currentComplex = float2(currentDFTValue.x, currentDFTValue.y);
+    Complex refComplex = float2(refDFTValue.x, refDFTValue.y);
+    
+    // Process each filter in the batch
+    for (int i = 0; i < BatchSize; i++)
+    {
+        int filterIndex = BatchStart + i;
+        uint filterOffset = filterIndex * Width * Height;
+        
+        // Get filter value at this position
+        Complex filter = PyramidFilters[filterOffset + pixelIndex];
+        
+        // Apply filter: pyramid_level = DFT * filter
+        Complex currentPyr = ComplexMultiply(currentComplex, filter);
+        Complex refPyr = ComplexMultiply(refComplex, filter);
+        
+        // Store pyramid levels for next stage
+        uint levelOffset = i * Width * Height + pixelIndex;
+        CurrentPyramidLevels[levelOffset] = currentPyr;
+        ReferencePyramidLevels[levelOffset] = refPyr;
+    }
+}
+
+// Compute phase delta between current and reference pyramid levels
+[numthreads(GROUP_SIZE_X, GROUP_SIZE_Y, 1)]
+void ComputePhaseDelta(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= (uint)Width || id.y >= (uint)Height)
+        return;
+    
+    uint pixelIndex = id.y * Width + id.x;
+    
+    for (int i = 0; i < BatchSize; i++)
+    {
+        uint levelOffset = i * Width * Height + pixelIndex;
+        
+        // Get pyramid levels
+        Complex currentPyr = CurrentPyramidLevels[levelOffset];
+        Complex refPyr = ReferencePyramidLevels[levelOffset];
+        
+        // Calculate phases
+        float currentPhase = ComplexPhase(currentPyr);
+        float refPhase = ComplexPhase(refPyr);
+        
+        // Calculate phase delta (keeping user's approach: previous - current)
+        float delta = NormalizePhase(refPhase - currentPhase);
+        
+        // Store phase delta
+        PhaseDeltas[levelOffset] = float2(delta, 0);
+    }
+}
+
+// Apply motion magnification and reconstruct
+[numthreads(GROUP_SIZE_X, GROUP_SIZE_Y, 1)]
+void ApplyMotionMagnification(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= (uint)Width || id.y >= (uint)Height)
+        return;
+    
+    uint pixelIndex = id.y * Width + id.x;
+    
+    for (int i = 0; i < BatchSize; i++)
+    {
+        int filterIndex = BatchStart + i;
+        uint filterOffset = filterIndex * Width * Height;
+        uint levelOffset = i * Width * Height + pixelIndex;
+        
+        // Get filter
+        Complex filter = PyramidFilters[filterOffset + pixelIndex];
+        
+        // Get current pyramid level
+        Complex currentPyr = CurrentPyramidLevels[levelOffset];
+        
+        // Get phase delta (after temporal filtering)
+        float delta = PhaseDeltas[levelOffset].x;
+        
+        // Apply motion magnification
+        float modifiedPhase = delta * PhaseMag;
+        
+        // Apply attenuation if enabled
+        if (Attenuate)
+        {
+            Complex refPyr = ReferencePyramidLevels[levelOffset];
+            
+            float currentMag = ComplexMagnitude(currentPyr);
+            float refPhase = ComplexPhase(refPyr);
+            
+            // Replace with reference phase while keeping current magnitude
+            currentPyr = ComplexFromPolar(currentMag, refPhase);
+        }
+        
+        // Apply phase modification: curr_pyr * exp(1j * modified_phase)
+        Complex expPhase = ComplexExp(modifiedPhase);
+        Complex modifiedPyr = ComplexMultiply(currentPyr, expPhase);
+        
+        // Reconstruct by applying filter again (as in Python: recon_level_batch)
+        Complex reconstructed = ComplexMultiply(modifiedPyr, filter);
+        
+        // Accumulate to reconstruction buffer
+        uint reconIndex = pixelIndex;
+        ReconDFT[reconIndex].x += reconstructed.x;
+        ReconDFT[reconIndex].y += reconstructed.y;
+    }
+}
+
+// Clear buffer kernel
+[numthreads(GROUP_SIZE_X, GROUP_SIZE_Y, 1)]
+void ClearBuffer(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= (uint)Width || id.y >= (uint)Height)
+        return;
+    
+    uint pixelIndex = id.y * Width + id.x;
+    ReconDFT[pixelIndex] = float2(0, 0);
+}
+
+// Accumulate hi/lo pass components
+[numthreads(GROUP_SIZE_X, GROUP_SIZE_Y, 1)]
+void AccumulateReconstruction(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= (uint)Width || id.y >= (uint)Height)
+        return;
+    
+    uint pixelIndex = id.y * Width + id.x;
+    
+    // Get filter (hi-pass or lo-pass based on FilterIndex)
+    uint filterOffset = FilterIndex * Width * Height;
+    Complex filter = PyramidFilters[filterOffset + pixelIndex];
+    
+    // Get current DFT value
+    float4 currentDFTValue = CurrentDFT[id.xy];
+    Complex currentComplex = float2(currentDFTValue.x, currentDFTValue.y);
+    
+    // Apply filter to get pyramid level
+    Complex pyramidLevel = ComplexMultiply(currentComplex, filter);
+    
+    // Reconstruct: multiply by filter again
+    Complex reconstructed = ComplexMultiply(pyramidLevel, filter);
+    
+    // Accumulate
+    ReconDFT[pixelIndex].x += reconstructed.x;
+    ReconDFT[pixelIndex].y += reconstructed.y;
+}

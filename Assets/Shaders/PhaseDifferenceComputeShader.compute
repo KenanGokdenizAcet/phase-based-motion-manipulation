@@ -1,0 +1,111 @@
+#pragma kernel ProcessPhaseDifference
+
+// Thread group size
+#define GROUP_SIZE_X 32
+#define GROUP_SIZE_Y 32
+
+// Input textures (RG format - Real and Imaginary parts)
+Texture2D<float4> _CurrentDFT;
+Texture2D<float4> _PreviousDFT;
+
+// Output texture (RG format - Real and Imaginary parts)
+RWTexture2D<float4> _OutputDFT;
+
+// Parameters
+float _PhaseScale;
+float _MagnitudeThreshold;
+float _MagnitudeScale;
+int _Width;
+int _Height;
+
+// Complex number operations
+float2 complex_multiply(float2 a, float2 b)
+{
+    return float2(a.x * b.x - a.y * b.y, a.x * b.y + a.y * b.x);
+}
+
+float complex_magnitude(float2 z)
+{
+    return sqrt(z.x * z.x + z.y * z.y);
+}
+
+float complex_phase(float2 z)
+{
+    return atan2(z.y, z.x);
+}
+
+float2 complex_from_polar(float magnitude, float phase)
+{
+    return float2(magnitude * cos(phase), magnitude * sin(phase));
+}
+
+float2 complex_exp(float phase)
+{
+    return float2(cos(phase), sin(phase));
+}
+
+// Normalize phase to [-pi, pi] range
+float normalize_phase(float phase)
+{
+    while (phase > 3.14159265359)
+        phase -= 2.0 * 3.14159265359;
+    while (phase < -3.14159265359)
+        phase += 2.0 * 3.14159265359;
+    return phase;
+}
+
+[numthreads(GROUP_SIZE_X, GROUP_SIZE_Y, 1)]
+void ProcessPhaseDifference(uint3 id : SV_DispatchThreadID)
+{
+    // Boundary check
+    if (id.x >= (uint)_Width || id.y >= (uint)_Height)
+        return;
+    
+    // Sample current and previous DFT values
+    float4 currentDFT = _CurrentDFT[id.xy];
+    float4 previousDFT = _PreviousDFT[id.xy];
+    
+    // Extract complex numbers (RG channels)
+    float2 currentComplex = currentDFT.rg;
+    float2 previousComplex = previousDFT.rg;
+    
+    // Calculate magnitudes
+    float currentMagnitude = complex_magnitude(currentComplex);
+    float previousMagnitude = complex_magnitude(previousComplex);
+    
+    // Check magnitude threshold to avoid noise amplification
+    if (currentMagnitude < _MagnitudeThreshold || previousMagnitude < _MagnitudeThreshold)
+    {
+        // Keep original if magnitude is too small
+        _OutputDFT[id.xy] = currentDFT;
+        return;
+    }
+    
+    // Calculate phases
+    float currentPhase = complex_phase(currentComplex);
+    float previousPhase = complex_phase(previousComplex);
+    
+    // Calculate phase difference: delta = prevPhase - currentPhase
+    float delta = normalize_phase(previousPhase - currentPhase);
+    
+    // Apply phase magnification
+    float modifiedPhaseDelta = delta * _PhaseScale;
+    
+    // Calculate new phase: newPhase = currentPhase + magnified_delta
+    float newPhase = currentPhase + modifiedPhaseDelta;
+    
+    // Apply magnitude scaling if needed
+    float newMagnitude = currentMagnitude * _MagnitudeScale;
+    
+    // Create the exponential term: exp(1.0j * modifiedPhaseDelta)
+    float2 expTerm = complex_exp(modifiedPhaseDelta);
+    
+    // Apply phase modification: modifiedComplex = currentComplex * exp(1.0j * modifiedPhaseDelta)
+    float2 modifiedComplex = complex_multiply(currentComplex, expTerm);
+    
+    // Alternative approach: reconstruct from magnitude and new phase
+    // float2 modifiedComplex = complex_from_polar(newMagnitude, newPhase);
+    
+    // Write result
+    _OutputDFT[id.xy] = float4(modifiedComplex.x, modifiedComplex.y, currentDFT.b, currentDFT.a);
+}

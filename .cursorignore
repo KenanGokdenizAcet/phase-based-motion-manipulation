@@ -1,0 +1,8 @@
+# Cursor AI ignore file
+# Assets klasörü dışındaki her şeyi yoksay
+/*
+!/Assets/
+
+# Assets klasörü içindeki meta dosyalarını yoksay
+**/*.meta
+**/*.DS_Store
