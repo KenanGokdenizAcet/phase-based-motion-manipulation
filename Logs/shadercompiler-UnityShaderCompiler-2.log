@@ -83,3 +83,379 @@ Cmd: compileComputeKernel
   insize=8369 file=Assets/Shaders/PhaseDifferenceComputeShader.compute kernel=ProcessPhaseDifference ppOnly=0 stripLineD=0 buildPlatform=2 km=<UNITY_VERSION=60000032> pKW=UNITY_ENABLE_REFLECTION_BUFFERS UNITY_FRAMEBUFFER_FETCH_AVAILABLE UNITY_USE_DITHER_MASK_FOR_ALPHABLENDED_SHADOWS UNITY_PBS_USE_BRDF1 UNITY_SPECCUBE_BOX_PROJECTION UNITY_SPECCUBE_BLENDING UNITY_ENABLE_DETAIL_NORMALMAP SHADER_API_DESKTOP UNITY_LIGHT_PROBE_PROXY_VOLUME UNITY_LIGHTMAP_FULL_HDR UNITY_NEEDS_RENDERPASS_FBFETCH_FALLBACK uKW=SHADER_STAGE_COMPUTE platform=metal flags=4294971424 reqs=16385 forceDXC=0 forceFXC=0  error: 1 plat 14 at PhaseDifferenceComputeShader.compute(91): use of potentially uninitialized variable (calculate_bandpass_weight)
  ok=1 outsize=7367
 
+Cmd: compileComputeKernel
+  insize=11967 file=Assets/Shaders/SteerablePyramid.compute kernel=MagnifyMotion ppOnly=0 stripLineD=0 buildPlatform=2 km=<UNITY_VERSION=60000032> pKW=UNITY_ENABLE_REFLECTION_BUFFERS UNITY_FRAMEBUFFER_FETCH_AVAILABLE UNITY_USE_DITHER_MASK_FOR_ALPHABLENDED_SHADOWS UNITY_PBS_USE_BRDF1 UNITY_SPECCUBE_BOX_PROJECTION UNITY_SPECCUBE_BLENDING UNITY_ENABLE_DETAIL_NORMALMAP SHADER_API_DESKTOP UNITY_LIGHT_PROBE_PROXY_VOLUME UNITY_LIGHTMAP_FULL_HDR UNITY_NEEDS_RENDERPASS_FBFETCH_FALLBACK uKW=SHADER_STAGE_COMPUTE platform=metal flags=4294971424 reqs=16385 forceDXC=0 forceFXC=0  error: 1 plat 14 at SteerablePyramid.compute(158): signed/unsigned mismatch, unsigned assumed
+  error: 1 plat 14 at SteerablePyramid.compute(179): signed/unsigned mismatch, unsigned assumed
+  error: 2 plat 14 at SteerablePyramid.compute(185): undeclared identifier 'sampler_LinearClamp'
+ ok=0 outsize=0
+
+Cmd: compileComputeKernel
+  insize=11967 file=Assets/Shaders/SteerablePyramid.compute kernel=ApplyBandpassFilter ppOnly=0 stripLineD=0 buildPlatform=2 km=<UNITY_VERSION=60000032> pKW=UNITY_ENABLE_REFLECTION_BUFFERS UNITY_FRAMEBUFFER_FETCH_AVAILABLE UNITY_USE_DITHER_MASK_FOR_ALPHABLENDED_SHADOWS UNITY_PBS_USE_BRDF1 UNITY_SPECCUBE_BOX_PROJECTION UNITY_SPECCUBE_BLENDING UNITY_ENABLE_DETAIL_NORMALMAP SHADER_API_DESKTOP UNITY_LIGHT_PROBE_PROXY_VOLUME UNITY_LIGHTMAP_FULL_HDR UNITY_NEEDS_RENDERPASS_FBFETCH_FALLBACK uKW=SHADER_STAGE_COMPUTE platform=metal flags=4294971424 reqs=16385 forceDXC=0 forceFXC=0  error: 1 plat 14 at SteerablePyramid.compute(158): signed/unsigned mismatch, unsigned assumed
+  error: 1 plat 14 at SteerablePyramid.compute(179): signed/unsigned mismatch, unsigned assumed
+  error: 2 plat 14 at SteerablePyramid.compute(185): undeclared identifier 'sampler_LinearClamp'
+ ok=0 outsize=0
+
+Cmd: compileComputeKernel
+  insize=11967 file=Assets/Shaders/SteerablePyramid.compute kernel=ComputePhaseDelta ppOnly=0 stripLineD=0 buildPlatform=2 km=<UNITY_VERSION=60000032> pKW=UNITY_ENABLE_REFLECTION_BUFFERS UNITY_FRAMEBUFFER_FETCH_AVAILABLE UNITY_USE_DITHER_MASK_FOR_ALPHABLENDED_SHADOWS UNITY_PBS_USE_BRDF1 UNITY_SPECCUBE_BOX_PROJECTION UNITY_SPECCUBE_BLENDING UNITY_ENABLE_DETAIL_NORMALMAP SHADER_API_DESKTOP UNITY_LIGHT_PROBE_PROXY_VOLUME UNITY_LIGHTMAP_FULL_HDR UNITY_NEEDS_RENDERPASS_FBFETCH_FALLBACK uKW=SHADER_STAGE_COMPUTE platform=metal flags=4294971424 reqs=16385 forceDXC=0 forceFXC=0  error: 1 plat 14 at SteerablePyramid.compute(158): signed/unsigned mismatch, unsigned assumed
+  error: 1 plat 14 at SteerablePyramid.compute(179): signed/unsigned mismatch, unsigned assumed
+  error: 2 plat 14 at SteerablePyramid.compute(185): undeclared identifier 'sampler_LinearClamp'
+ ok=0 outsize=0
+
+Cmd: compileComputeKernel
+  insize=11967 file=Assets/Shaders/SteerablePyramid.compute kernel=ReconstructPyramid ppOnly=0 stripLineD=0 buildPlatform=2 km=<UNITY_VERSION=60000032> pKW=UNITY_ENABLE_REFLECTION_BUFFERS UNITY_FRAMEBUFFER_FETCH_AVAILABLE UNITY_USE_DITHER_MASK_FOR_ALPHABLENDED_SHADOWS UNITY_PBS_USE_BRDF1 UNITY_SPECCUBE_BOX_PROJECTION UNITY_SPECCUBE_BLENDING UNITY_ENABLE_DETAIL_NORMALMAP SHADER_API_DESKTOP UNITY_LIGHT_PROBE_PROXY_VOLUME UNITY_LIGHTMAP_FULL_HDR UNITY_NEEDS_RENDERPASS_FBFETCH_FALLBACK uKW=SHADER_STAGE_COMPUTE platform=metal flags=4294971424 reqs=16385 forceDXC=0 forceFXC=0  error: 1 plat 14 at SteerablePyramid.compute(158): signed/unsigned mismatch, unsigned assumed
+  error: 1 plat 14 at SteerablePyramid.compute(179): signed/unsigned mismatch, unsigned assumed
+  error: 2 plat 14 at SteerablePyramid.compute(185): undeclared identifier 'sampler_LinearClamp'
+ ok=0 outsize=0
+
+Cmd: compileComputeKernel
+  insize=11967 file=Assets/Shaders/SteerablePyramid.compute kernel=DecomposePyramid ppOnly=0 stripLineD=0 buildPlatform=2 km=<UNITY_VERSION=60000032> pKW=UNITY_ENABLE_REFLECTION_BUFFERS UNITY_FRAMEBUFFER_FETCH_AVAILABLE UNITY_USE_DITHER_MASK_FOR_ALPHABLENDED_SHADOWS UNITY_PBS_USE_BRDF1 UNITY_SPECCUBE_BOX_PROJECTION UNITY_SPECCUBE_BLENDING UNITY_ENABLE_DETAIL_NORMALMAP SHADER_API_DESKTOP UNITY_LIGHT_PROBE_PROXY_VOLUME UNITY_LIGHTMAP_FULL_HDR UNITY_NEEDS_RENDERPASS_FBFETCH_FALLBACK uKW=SHADER_STAGE_COMPUTE platform=metal flags=4294971424 reqs=16385 forceDXC=0 forceFXC=0  error: 1 plat 14 at SteerablePyramid.compute(158): signed/unsigned mismatch, unsigned assumed
+  error: 1 plat 14 at SteerablePyramid.compute(179): signed/unsigned mismatch, unsigned assumed
+  error: 2 plat 14 at SteerablePyramid.compute(185): undeclared identifier 'sampler_LinearClamp'
+ ok=0 outsize=0
+
+Cmd: compileComputeKernel
+  insize=11967 file=Assets/Shaders/SteerablePyramid.compute kernel=GenerateSteerableFilters ppOnly=0 stripLineD=0 buildPlatform=2 km=<UNITY_VERSION=60000032> pKW=UNITY_ENABLE_REFLECTION_BUFFERS UNITY_FRAMEBUFFER_FETCH_AVAILABLE UNITY_USE_DITHER_MASK_FOR_ALPHABLENDED_SHADOWS UNITY_PBS_USE_BRDF1 UNITY_SPECCUBE_BOX_PROJECTION UNITY_SPECCUBE_BLENDING UNITY_ENABLE_DETAIL_NORMALMAP SHADER_API_DESKTOP UNITY_LIGHT_PROBE_PROXY_VOLUME UNITY_LIGHTMAP_FULL_HDR UNITY_NEEDS_RENDERPASS_FBFETCH_FALLBACK uKW=SHADER_STAGE_COMPUTE platform=metal flags=4294971424 reqs=16385 forceDXC=0 forceFXC=0  error: 1 plat 14 at SteerablePyramid.compute(158): signed/unsigned mismatch, unsigned assumed
+  error: 1 plat 14 at SteerablePyramid.compute(179): signed/unsigned mismatch, unsigned assumed
+  error: 2 plat 14 at SteerablePyramid.compute(185): undeclared identifier 'sampler_LinearClamp'
+ ok=0 outsize=0
+
+Cmd: compileComputeKernel
+  insize=12436 file=Assets/Shaders/SteerablePyramid.compute kernel=MagnifyMotion ppOnly=0 stripLineD=0 buildPlatform=2 km=<UNITY_VERSION=60000032> pKW=UNITY_ENABLE_REFLECTION_BUFFERS UNITY_FRAMEBUFFER_FETCH_AVAILABLE UNITY_USE_DITHER_MASK_FOR_ALPHABLENDED_SHADOWS UNITY_PBS_USE_BRDF1 UNITY_SPECCUBE_BOX_PROJECTION UNITY_SPECCUBE_BLENDING UNITY_ENABLE_DETAIL_NORMALMAP SHADER_API_DESKTOP UNITY_LIGHT_PROBE_PROXY_VOLUME UNITY_LIGHTMAP_FULL_HDR UNITY_NEEDS_RENDERPASS_FBFETCH_FALLBACK uKW=SHADER_STAGE_COMPUTE platform=metal flags=4294971424 reqs=16385 forceDXC=0 forceFXC=0  error: 1 plat 14 at SteerablePyramid.compute(158): signed/unsigned mismatch, unsigned assumed
+  error: 1 plat 14 at SteerablePyramid.compute(179): signed/unsigned mismatch, unsigned assumed
+  error: 1 plat 14 at SteerablePyramid.compute(232): signed/unsigned mismatch, unsigned assumed
+  error: 1 plat 14 at SteerablePyramid.compute(263): signed/unsigned mismatch, unsigned assumed
+  error: 1 plat 14 at SteerablePyramid.compute(269): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(301): signed/unsigned mismatch, unsigned assumed
+  error: 1 plat 14 at SteerablePyramid.compute(307): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(308): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(325): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(326): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(330): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(331): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(349): signed/unsigned mismatch, unsigned assumed
+  error: 1 plat 14 at SteerablePyramid.compute(355): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(358): 'Load': implicit truncation of vector type
+ ok=1 outsize=4343
+
+Cmd: compileComputeKernel
+  insize=12436 file=Assets/Shaders/SteerablePyramid.compute kernel=ApplyBandpassFilter ppOnly=0 stripLineD=0 buildPlatform=2 km=<UNITY_VERSION=60000032> pKW=UNITY_ENABLE_REFLECTION_BUFFERS UNITY_FRAMEBUFFER_FETCH_AVAILABLE UNITY_USE_DITHER_MASK_FOR_ALPHABLENDED_SHADOWS UNITY_PBS_USE_BRDF1 UNITY_SPECCUBE_BOX_PROJECTION UNITY_SPECCUBE_BLENDING UNITY_ENABLE_DETAIL_NORMALMAP SHADER_API_DESKTOP UNITY_LIGHT_PROBE_PROXY_VOLUME UNITY_LIGHTMAP_FULL_HDR UNITY_NEEDS_RENDERPASS_FBFETCH_FALLBACK uKW=SHADER_STAGE_COMPUTE platform=metal flags=4294971424 reqs=16385 forceDXC=0 forceFXC=0  error: 1 plat 14 at SteerablePyramid.compute(158): signed/unsigned mismatch, unsigned assumed
+  error: 1 plat 14 at SteerablePyramid.compute(179): signed/unsigned mismatch, unsigned assumed
+  error: 1 plat 14 at SteerablePyramid.compute(232): signed/unsigned mismatch, unsigned assumed
+  error: 1 plat 14 at SteerablePyramid.compute(263): signed/unsigned mismatch, unsigned assumed
+  error: 1 plat 14 at SteerablePyramid.compute(269): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(284): pow(f, e) will not work for negative f, use abs(f) or conditionally handle negative values if you expect them
+  error: 1 plat 14 at SteerablePyramid.compute(301): signed/unsigned mismatch, unsigned assumed
+  error: 1 plat 14 at SteerablePyramid.compute(307): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(308): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(325): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(326): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(330): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(331): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(349): signed/unsigned mismatch, unsigned assumed
+  error: 1 plat 14 at SteerablePyramid.compute(355): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(358): 'Load': implicit truncation of vector type
+ ok=1 outsize=2520
+
+Cmd: compileComputeKernel
+  insize=12436 file=Assets/Shaders/SteerablePyramid.compute kernel=ComputePhaseDelta ppOnly=0 stripLineD=0 buildPlatform=2 km=<UNITY_VERSION=60000032> pKW=UNITY_ENABLE_REFLECTION_BUFFERS UNITY_FRAMEBUFFER_FETCH_AVAILABLE UNITY_USE_DITHER_MASK_FOR_ALPHABLENDED_SHADOWS UNITY_PBS_USE_BRDF1 UNITY_SPECCUBE_BOX_PROJECTION UNITY_SPECCUBE_BLENDING UNITY_ENABLE_DETAIL_NORMALMAP SHADER_API_DESKTOP UNITY_LIGHT_PROBE_PROXY_VOLUME UNITY_LIGHTMAP_FULL_HDR UNITY_NEEDS_RENDERPASS_FBFETCH_FALLBACK uKW=SHADER_STAGE_COMPUTE platform=metal flags=4294971424 reqs=16385 forceDXC=0 forceFXC=0  error: 1 plat 14 at SteerablePyramid.compute(158): signed/unsigned mismatch, unsigned assumed
+  error: 1 plat 14 at SteerablePyramid.compute(179): signed/unsigned mismatch, unsigned assumed
+  error: 1 plat 14 at SteerablePyramid.compute(232): signed/unsigned mismatch, unsigned assumed
+  error: 1 plat 14 at SteerablePyramid.compute(263): signed/unsigned mismatch, unsigned assumed
+  error: 1 plat 14 at SteerablePyramid.compute(269): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(301): signed/unsigned mismatch, unsigned assumed
+  error: 1 plat 14 at SteerablePyramid.compute(307): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(308): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(325): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(326): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(330): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(331): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(349): signed/unsigned mismatch, unsigned assumed
+  error: 1 plat 14 at SteerablePyramid.compute(355): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(358): 'Load': implicit truncation of vector type
+ ok=1 outsize=4107
+
+Cmd: compileComputeKernel
+  insize=12436 file=Assets/Shaders/SteerablePyramid.compute kernel=ReconstructPyramid ppOnly=0 stripLineD=0 buildPlatform=2 km=<UNITY_VERSION=60000032> pKW=UNITY_ENABLE_REFLECTION_BUFFERS UNITY_FRAMEBUFFER_FETCH_AVAILABLE UNITY_USE_DITHER_MASK_FOR_ALPHABLENDED_SHADOWS UNITY_PBS_USE_BRDF1 UNITY_SPECCUBE_BOX_PROJECTION UNITY_SPECCUBE_BLENDING UNITY_ENABLE_DETAIL_NORMALMAP SHADER_API_DESKTOP UNITY_LIGHT_PROBE_PROXY_VOLUME UNITY_LIGHTMAP_FULL_HDR UNITY_NEEDS_RENDERPASS_FBFETCH_FALLBACK uKW=SHADER_STAGE_COMPUTE platform=metal flags=4294971424 reqs=16385 forceDXC=0 forceFXC=0  error: 1 plat 14 at SteerablePyramid.compute(158): signed/unsigned mismatch, unsigned assumed
+  error: 1 plat 14 at SteerablePyramid.compute(179): signed/unsigned mismatch, unsigned assumed
+  error: 1 plat 14 at SteerablePyramid.compute(232): signed/unsigned mismatch, unsigned assumed
+  error: 1 plat 14 at SteerablePyramid.compute(263): signed/unsigned mismatch, unsigned assumed
+  error: 1 plat 14 at SteerablePyramid.compute(269): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(301): signed/unsigned mismatch, unsigned assumed
+  error: 1 plat 14 at SteerablePyramid.compute(307): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(308): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(325): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(326): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(330): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(331): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(349): signed/unsigned mismatch, unsigned assumed
+  error: 1 plat 14 at SteerablePyramid.compute(355): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(358): 'Load': implicit truncation of vector type
+  error: 2 plat 14 at SteerablePyramid.compute(367): non-empty case statements must have break or return
+  error: 2 plat 14 at SteerablePyramid.compute(368): Fall-throughs in switch statements are not allowed.
+  error: 2 plat 14 at SteerablePyramid.compute(369): non-empty case statements must have break or return
+  error: 2 plat 14 at SteerablePyramid.compute(370): Fall-throughs in switch statements are not allowed.
+  error: 2 plat 14 at SteerablePyramid.compute(371): non-empty case statements must have break or return
+  error: 2 plat 14 at SteerablePyramid.compute(372): Fall-throughs in switch statements are not allowed.
+  error: 2 plat 14 at SteerablePyramid.compute(373): non-empty case statements must have break or return
+  error: 2 plat 14 at SteerablePyramid.compute(374): Fall-throughs in switch statements are not allowed.
+  error: 2 plat 14 at SteerablePyramid.compute(375): non-empty case statements must have break or return
+  error: 2 plat 14 at SteerablePyramid.compute(376): Fall-throughs in switch statements are not allowed.
+  error: 2 plat 14 at SteerablePyramid.compute(377): non-empty case statements must have break or return
+  error: 2 plat 14 at SteerablePyramid.compute(378): Fall-throughs in switch statements are not allowed.
+  error: 2 plat 14 at SteerablePyramid.compute(379): non-empty case statements must have break or return
+  error: 2 plat 14 at SteerablePyramid.compute(380): Fall-throughs in switch statements are not allowed.
+ ok=0 outsize=0
+
+Cmd: compileComputeKernel
+  insize=12436 file=Assets/Shaders/SteerablePyramid.compute kernel=DecomposePyramid ppOnly=0 stripLineD=0 buildPlatform=2 km=<UNITY_VERSION=60000032> pKW=UNITY_ENABLE_REFLECTION_BUFFERS UNITY_FRAMEBUFFER_FETCH_AVAILABLE UNITY_USE_DITHER_MASK_FOR_ALPHABLENDED_SHADOWS UNITY_PBS_USE_BRDF1 UNITY_SPECCUBE_BOX_PROJECTION UNITY_SPECCUBE_BLENDING UNITY_ENABLE_DETAIL_NORMALMAP SHADER_API_DESKTOP UNITY_LIGHT_PROBE_PROXY_VOLUME UNITY_LIGHTMAP_FULL_HDR UNITY_NEEDS_RENDERPASS_FBFETCH_FALLBACK uKW=SHADER_STAGE_COMPUTE platform=metal flags=4294971424 reqs=16385 forceDXC=0 forceFXC=0  error: 1 plat 14 at SteerablePyramid.compute(158): signed/unsigned mismatch, unsigned assumed
+  error: 1 plat 14 at SteerablePyramid.compute(179): signed/unsigned mismatch, unsigned assumed
+  error: 2 plat 14 at SteerablePyramid.compute(204): non-empty case statements must have break or return
+  error: 2 plat 14 at SteerablePyramid.compute(205): Fall-throughs in switch statements are not allowed.
+  error: 2 plat 14 at SteerablePyramid.compute(206): non-empty case statements must have break or return
+  error: 2 plat 14 at SteerablePyramid.compute(207): Fall-throughs in switch statements are not allowed.
+  error: 2 plat 14 at SteerablePyramid.compute(208): non-empty case statements must have break or return
+  error: 2 plat 14 at SteerablePyramid.compute(209): Fall-throughs in switch statements are not allowed.
+  error: 2 plat 14 at SteerablePyramid.compute(210): non-empty case statements must have break or return
+  error: 2 plat 14 at SteerablePyramid.compute(211): Fall-throughs in switch statements are not allowed.
+  error: 2 plat 14 at SteerablePyramid.compute(212): non-empty case statements must have break or return
+  error: 2 plat 14 at SteerablePyramid.compute(213): Fall-throughs in switch statements are not allowed.
+  error: 2 plat 14 at SteerablePyramid.compute(214): non-empty case statements must have break or return
+  error: 2 plat 14 at SteerablePyramid.compute(215): Fall-throughs in switch statements are not allowed.
+  error: 2 plat 14 at SteerablePyramid.compute(216): non-empty case statements must have break or return
+  error: 2 plat 14 at SteerablePyramid.compute(217): Fall-throughs in switch statements are not allowed.
+  error: 1 plat 14 at SteerablePyramid.compute(232): signed/unsigned mismatch, unsigned assumed
+  error: 1 plat 14 at SteerablePyramid.compute(263): signed/unsigned mismatch, unsigned assumed
+  error: 1 plat 14 at SteerablePyramid.compute(269): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(301): signed/unsigned mismatch, unsigned assumed
+  error: 1 plat 14 at SteerablePyramid.compute(307): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(308): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(325): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(326): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(330): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(331): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(349): signed/unsigned mismatch, unsigned assumed
+  error: 1 plat 14 at SteerablePyramid.compute(355): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(358): 'Load': implicit truncation of vector type
+ ok=0 outsize=0
+
+Cmd: compileComputeKernel
+  insize=12436 file=Assets/Shaders/SteerablePyramid.compute kernel=GenerateSteerableFilters ppOnly=0 stripLineD=0 buildPlatform=2 km=<UNITY_VERSION=60000032> pKW=UNITY_ENABLE_REFLECTION_BUFFERS UNITY_FRAMEBUFFER_FETCH_AVAILABLE UNITY_USE_DITHER_MASK_FOR_ALPHABLENDED_SHADOWS UNITY_PBS_USE_BRDF1 UNITY_SPECCUBE_BOX_PROJECTION UNITY_SPECCUBE_BLENDING UNITY_ENABLE_DETAIL_NORMALMAP SHADER_API_DESKTOP UNITY_LIGHT_PROBE_PROXY_VOLUME UNITY_LIGHTMAP_FULL_HDR UNITY_NEEDS_RENDERPASS_FBFETCH_FALLBACK uKW=SHADER_STAGE_COMPUTE platform=metal flags=4294971424 reqs=16385 forceDXC=0 forceFXC=0  error: 1 plat 14 at SteerablePyramid.compute(158): signed/unsigned mismatch, unsigned assumed
+  error: 1 plat 14 at SteerablePyramid.compute(179): signed/unsigned mismatch, unsigned assumed
+  error: 1 plat 14 at SteerablePyramid.compute(232): signed/unsigned mismatch, unsigned assumed
+  error: 1 plat 14 at SteerablePyramid.compute(263): signed/unsigned mismatch, unsigned assumed
+  error: 1 plat 14 at SteerablePyramid.compute(269): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(301): signed/unsigned mismatch, unsigned assumed
+  error: 1 plat 14 at SteerablePyramid.compute(307): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(308): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(325): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(326): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(330): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(331): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(349): signed/unsigned mismatch, unsigned assumed
+  error: 1 plat 14 at SteerablePyramid.compute(355): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(358): 'Load': implicit truncation of vector type
+ ok=1 outsize=5786
+
+Cmd: compileComputeKernel
+  insize=12363 file=Assets/Shaders/SteerablePyramid.compute kernel=MagnifyMotion ppOnly=0 stripLineD=0 buildPlatform=2 km=<UNITY_VERSION=60000032> pKW=UNITY_ENABLE_REFLECTION_BUFFERS UNITY_FRAMEBUFFER_FETCH_AVAILABLE UNITY_USE_DITHER_MASK_FOR_ALPHABLENDED_SHADOWS UNITY_PBS_USE_BRDF1 UNITY_SPECCUBE_BOX_PROJECTION UNITY_SPECCUBE_BLENDING UNITY_ENABLE_DETAIL_NORMALMAP SHADER_API_DESKTOP UNITY_LIGHT_PROBE_PROXY_VOLUME UNITY_LIGHTMAP_FULL_HDR UNITY_NEEDS_RENDERPASS_FBFETCH_FALLBACK uKW=SHADER_STAGE_COMPUTE platform=metal flags=4294971424 reqs=16385 forceDXC=0 forceFXC=0  error: 1 plat 14 at SteerablePyramid.compute(158): signed/unsigned mismatch, unsigned assumed
+  error: 1 plat 14 at SteerablePyramid.compute(179): signed/unsigned mismatch, unsigned assumed
+  error: 1 plat 14 at SteerablePyramid.compute(220): signed/unsigned mismatch, unsigned assumed
+  error: 1 plat 14 at SteerablePyramid.compute(251): signed/unsigned mismatch, unsigned assumed
+  error: 1 plat 14 at SteerablePyramid.compute(257): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(289): signed/unsigned mismatch, unsigned assumed
+  error: 1 plat 14 at SteerablePyramid.compute(295): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(296): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(313): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(314): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(318): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(319): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(337): signed/unsigned mismatch, unsigned assumed
+  error: 1 plat 14 at SteerablePyramid.compute(343): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(346): 'Load': implicit truncation of vector type
+ ok=1 outsize=4343
+
+Cmd: compileComputeKernel
+  insize=12363 file=Assets/Shaders/SteerablePyramid.compute kernel=ApplyBandpassFilter ppOnly=0 stripLineD=0 buildPlatform=2 km=<UNITY_VERSION=60000032> pKW=UNITY_ENABLE_REFLECTION_BUFFERS UNITY_FRAMEBUFFER_FETCH_AVAILABLE UNITY_USE_DITHER_MASK_FOR_ALPHABLENDED_SHADOWS UNITY_PBS_USE_BRDF1 UNITY_SPECCUBE_BOX_PROJECTION UNITY_SPECCUBE_BLENDING UNITY_ENABLE_DETAIL_NORMALMAP SHADER_API_DESKTOP UNITY_LIGHT_PROBE_PROXY_VOLUME UNITY_LIGHTMAP_FULL_HDR UNITY_NEEDS_RENDERPASS_FBFETCH_FALLBACK uKW=SHADER_STAGE_COMPUTE platform=metal flags=4294971424 reqs=16385 forceDXC=0 forceFXC=0  error: 1 plat 14 at SteerablePyramid.compute(158): signed/unsigned mismatch, unsigned assumed
+  error: 1 plat 14 at SteerablePyramid.compute(179): signed/unsigned mismatch, unsigned assumed
+  error: 1 plat 14 at SteerablePyramid.compute(220): signed/unsigned mismatch, unsigned assumed
+  error: 1 plat 14 at SteerablePyramid.compute(251): signed/unsigned mismatch, unsigned assumed
+  error: 1 plat 14 at SteerablePyramid.compute(257): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(272): pow(f, e) will not work for negative f, use abs(f) or conditionally handle negative values if you expect them
+  error: 1 plat 14 at SteerablePyramid.compute(289): signed/unsigned mismatch, unsigned assumed
+  error: 1 plat 14 at SteerablePyramid.compute(295): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(296): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(313): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(314): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(318): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(319): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(337): signed/unsigned mismatch, unsigned assumed
+  error: 1 plat 14 at SteerablePyramid.compute(343): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(346): 'Load': implicit truncation of vector type
+ ok=1 outsize=2520
+
+Cmd: compileComputeKernel
+  insize=12363 file=Assets/Shaders/SteerablePyramid.compute kernel=ComputePhaseDelta ppOnly=0 stripLineD=0 buildPlatform=2 km=<UNITY_VERSION=60000032> pKW=UNITY_ENABLE_REFLECTION_BUFFERS UNITY_FRAMEBUFFER_FETCH_AVAILABLE UNITY_USE_DITHER_MASK_FOR_ALPHABLENDED_SHADOWS UNITY_PBS_USE_BRDF1 UNITY_SPECCUBE_BOX_PROJECTION UNITY_SPECCUBE_BLENDING UNITY_ENABLE_DETAIL_NORMALMAP SHADER_API_DESKTOP UNITY_LIGHT_PROBE_PROXY_VOLUME UNITY_LIGHTMAP_FULL_HDR UNITY_NEEDS_RENDERPASS_FBFETCH_FALLBACK uKW=SHADER_STAGE_COMPUTE platform=metal flags=4294971424 reqs=16385 forceDXC=0 forceFXC=0  error: 1 plat 14 at SteerablePyramid.compute(158): signed/unsigned mismatch, unsigned assumed
+  error: 1 plat 14 at SteerablePyramid.compute(179): signed/unsigned mismatch, unsigned assumed
+  error: 1 plat 14 at SteerablePyramid.compute(220): signed/unsigned mismatch, unsigned assumed
+  error: 1 plat 14 at SteerablePyramid.compute(251): signed/unsigned mismatch, unsigned assumed
+  error: 1 plat 14 at SteerablePyramid.compute(257): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(289): signed/unsigned mismatch, unsigned assumed
+  error: 1 plat 14 at SteerablePyramid.compute(295): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(296): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(313): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(314): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(318): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(319): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(337): signed/unsigned mismatch, unsigned assumed
+  error: 1 plat 14 at SteerablePyramid.compute(343): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(346): 'Load': implicit truncation of vector type
+ ok=1 outsize=4107
+
+Cmd: compileComputeKernel
+  insize=12363 file=Assets/Shaders/SteerablePyramid.compute kernel=ReconstructPyramid ppOnly=0 stripLineD=0 buildPlatform=2 km=<UNITY_VERSION=60000032> pKW=UNITY_ENABLE_REFLECTION_BUFFERS UNITY_FRAMEBUFFER_FETCH_AVAILABLE UNITY_USE_DITHER_MASK_FOR_ALPHABLENDED_SHADOWS UNITY_PBS_USE_BRDF1 UNITY_SPECCUBE_BOX_PROJECTION UNITY_SPECCUBE_BLENDING UNITY_ENABLE_DETAIL_NORMALMAP SHADER_API_DESKTOP UNITY_LIGHT_PROBE_PROXY_VOLUME UNITY_LIGHTMAP_FULL_HDR UNITY_NEEDS_RENDERPASS_FBFETCH_FALLBACK uKW=SHADER_STAGE_COMPUTE platform=metal flags=4294971424 reqs=16385 forceDXC=0 forceFXC=0  error: 1 plat 14 at SteerablePyramid.compute(158): signed/unsigned mismatch, unsigned assumed
+  error: 1 plat 14 at SteerablePyramid.compute(179): signed/unsigned mismatch, unsigned assumed
+  error: 1 plat 14 at SteerablePyramid.compute(220): signed/unsigned mismatch, unsigned assumed
+  error: 1 plat 14 at SteerablePyramid.compute(251): signed/unsigned mismatch, unsigned assumed
+  error: 1 plat 14 at SteerablePyramid.compute(257): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(289): signed/unsigned mismatch, unsigned assumed
+  error: 1 plat 14 at SteerablePyramid.compute(295): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(296): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(313): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(314): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(318): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(319): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(337): signed/unsigned mismatch, unsigned assumed
+  error: 1 plat 14 at SteerablePyramid.compute(343): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(346): 'Load': implicit truncation of vector type
+ ok=1 outsize=4394
+
+Cmd: compileComputeKernel
+  insize=12363 file=Assets/Shaders/SteerablePyramid.compute kernel=DecomposePyramid ppOnly=0 stripLineD=0 buildPlatform=2 km=<UNITY_VERSION=60000032> pKW=UNITY_ENABLE_REFLECTION_BUFFERS UNITY_FRAMEBUFFER_FETCH_AVAILABLE UNITY_USE_DITHER_MASK_FOR_ALPHABLENDED_SHADOWS UNITY_PBS_USE_BRDF1 UNITY_SPECCUBE_BOX_PROJECTION UNITY_SPECCUBE_BLENDING UNITY_ENABLE_DETAIL_NORMALMAP SHADER_API_DESKTOP UNITY_LIGHT_PROBE_PROXY_VOLUME UNITY_LIGHTMAP_FULL_HDR UNITY_NEEDS_RENDERPASS_FBFETCH_FALLBACK uKW=SHADER_STAGE_COMPUTE platform=metal flags=4294971424 reqs=16385 forceDXC=0 forceFXC=0  error: 1 plat 14 at SteerablePyramid.compute(158): signed/unsigned mismatch, unsigned assumed
+  error: 1 plat 14 at SteerablePyramid.compute(179): signed/unsigned mismatch, unsigned assumed
+  error: 1 plat 14 at SteerablePyramid.compute(220): signed/unsigned mismatch, unsigned assumed
+  error: 1 plat 14 at SteerablePyramid.compute(251): signed/unsigned mismatch, unsigned assumed
+  error: 1 plat 14 at SteerablePyramid.compute(257): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(289): signed/unsigned mismatch, unsigned assumed
+  error: 1 plat 14 at SteerablePyramid.compute(295): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(296): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(313): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(314): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(318): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(319): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(337): signed/unsigned mismatch, unsigned assumed
+  error: 1 plat 14 at SteerablePyramid.compute(343): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(346): 'Load': implicit truncation of vector type
+ ok=1 outsize=5221
+
+Cmd: compileComputeKernel
+  insize=12363 file=Assets/Shaders/SteerablePyramid.compute kernel=GenerateSteerableFilters ppOnly=0 stripLineD=0 buildPlatform=2 km=<UNITY_VERSION=60000032> pKW=UNITY_ENABLE_REFLECTION_BUFFERS UNITY_FRAMEBUFFER_FETCH_AVAILABLE UNITY_USE_DITHER_MASK_FOR_ALPHABLENDED_SHADOWS UNITY_PBS_USE_BRDF1 UNITY_SPECCUBE_BOX_PROJECTION UNITY_SPECCUBE_BLENDING UNITY_ENABLE_DETAIL_NORMALMAP SHADER_API_DESKTOP UNITY_LIGHT_PROBE_PROXY_VOLUME UNITY_LIGHTMAP_FULL_HDR UNITY_NEEDS_RENDERPASS_FBFETCH_FALLBACK uKW=SHADER_STAGE_COMPUTE platform=metal flags=4294971424 reqs=16385 forceDXC=0 forceFXC=0  error: 1 plat 14 at SteerablePyramid.compute(158): signed/unsigned mismatch, unsigned assumed
+  error: 1 plat 14 at SteerablePyramid.compute(179): signed/unsigned mismatch, unsigned assumed
+  error: 1 plat 14 at SteerablePyramid.compute(220): signed/unsigned mismatch, unsigned assumed
+  error: 1 plat 14 at SteerablePyramid.compute(251): signed/unsigned mismatch, unsigned assumed
+  error: 1 plat 14 at SteerablePyramid.compute(257): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(289): signed/unsigned mismatch, unsigned assumed
+  error: 1 plat 14 at SteerablePyramid.compute(295): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(296): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(313): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(314): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(318): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(319): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(337): signed/unsigned mismatch, unsigned assumed
+  error: 1 plat 14 at SteerablePyramid.compute(343): 'Load': implicit truncation of vector type
+  error: 1 plat 14 at SteerablePyramid.compute(346): 'Load': implicit truncation of vector type
+ ok=1 outsize=5786
+
+Cmd: compileComputeKernel
+  insize=11422 file=Assets/Shaders/SteerablePyramid.compute kernel=ComputeOrientedFilters ppOnly=0 stripLineD=0 buildPlatform=2 km=<UNITY_VERSION=60000032> pKW=UNITY_ENABLE_REFLECTION_BUFFERS UNITY_FRAMEBUFFER_FETCH_AVAILABLE UNITY_USE_DITHER_MASK_FOR_ALPHABLENDED_SHADOWS UNITY_PBS_USE_BRDF1 UNITY_SPECCUBE_BOX_PROJECTION UNITY_SPECCUBE_BLENDING UNITY_ENABLE_DETAIL_NORMALMAP SHADER_API_DESKTOP UNITY_LIGHT_PROBE_PROXY_VOLUME UNITY_LIGHTMAP_FULL_HDR UNITY_NEEDS_RENDERPASS_FBFETCH_FALLBACK uKW=SHADER_STAGE_COMPUTE platform=metal flags=4294971424 reqs=16385 forceDXC=0 forceFXC=0  error: 1 plat 14 at SteerablePyramid.compute(105): signed/unsigned mismatch, unsigned assumed
+  error: 1 plat 14 at SteerablePyramid.compute(124): signed/unsigned mismatch, unsigned assumed
+  error: 1 plat 14 at SteerablePyramid.compute(130): signed/unsigned mismatch, unsigned assumed
+  error: 2 plat 14 at SteerablePyramid.compute(142): undeclared identifier 'sampler_LinearClamp'
+ ok=0 outsize=0
+
+Cmd: compileComputeKernel
+  insize=11422 file=Assets/Shaders/SteerablePyramid.compute kernel=ComputeHighpass ppOnly=0 stripLineD=0 buildPlatform=2 km=<UNITY_VERSION=60000032> pKW=UNITY_ENABLE_REFLECTION_BUFFERS UNITY_FRAMEBUFFER_FETCH_AVAILABLE UNITY_USE_DITHER_MASK_FOR_ALPHABLENDED_SHADOWS UNITY_PBS_USE_BRDF1 UNITY_SPECCUBE_BOX_PROJECTION UNITY_SPECCUBE_BLENDING UNITY_ENABLE_DETAIL_NORMALMAP SHADER_API_DESKTOP UNITY_LIGHT_PROBE_PROXY_VOLUME UNITY_LIGHTMAP_FULL_HDR UNITY_NEEDS_RENDERPASS_FBFETCH_FALLBACK uKW=SHADER_STAGE_COMPUTE platform=metal flags=4294971424 reqs=16385 forceDXC=0 forceFXC=0  error: 1 plat 14 at SteerablePyramid.compute(105): signed/unsigned mismatch, unsigned assumed
+  error: 1 plat 14 at SteerablePyramid.compute(124): signed/unsigned mismatch, unsigned assumed
+  error: 1 plat 14 at SteerablePyramid.compute(130): signed/unsigned mismatch, unsigned assumed
+  error: 2 plat 14 at SteerablePyramid.compute(142): undeclared identifier 'sampler_LinearClamp'
+ ok=0 outsize=0
+
+Cmd: compileComputeKernel
+  insize=11422 file=Assets/Shaders/SteerablePyramid.compute kernel=ComputeLowpass ppOnly=0 stripLineD=0 buildPlatform=2 km=<UNITY_VERSION=60000032> pKW=UNITY_ENABLE_REFLECTION_BUFFERS UNITY_FRAMEBUFFER_FETCH_AVAILABLE UNITY_USE_DITHER_MASK_FOR_ALPHABLENDED_SHADOWS UNITY_PBS_USE_BRDF1 UNITY_SPECCUBE_BOX_PROJECTION UNITY_SPECCUBE_BLENDING UNITY_ENABLE_DETAIL_NORMALMAP SHADER_API_DESKTOP UNITY_LIGHT_PROBE_PROXY_VOLUME UNITY_LIGHTMAP_FULL_HDR UNITY_NEEDS_RENDERPASS_FBFETCH_FALLBACK uKW=SHADER_STAGE_COMPUTE platform=metal flags=4294971424 reqs=16385 forceDXC=0 forceFXC=0  error: 1 plat 14 at SteerablePyramid.compute(105): signed/unsigned mismatch, unsigned assumed
+  error: 1 plat 14 at SteerablePyramid.compute(124): signed/unsigned mismatch, unsigned assumed
+  error: 1 plat 14 at SteerablePyramid.compute(130): signed/unsigned mismatch, unsigned assumed
+  error: 2 plat 14 at SteerablePyramid.compute(142): undeclared identifier 'sampler_LinearClamp'
+ ok=0 outsize=0
+
+Cmd: compileComputeKernel
+  insize=11422 file=Assets/Shaders/SteerablePyramid.compute kernel=ReconstructPyramid ppOnly=0 stripLineD=0 buildPlatform=2 km=<UNITY_VERSION=60000032> pKW=UNITY_ENABLE_REFLECTION_BUFFERS UNITY_FRAMEBUFFER_FETCH_AVAILABLE UNITY_USE_DITHER_MASK_FOR_ALPHABLENDED_SHADOWS UNITY_PBS_USE_BRDF1 UNITY_SPECCUBE_BOX_PROJECTION UNITY_SPECCUBE_BLENDING UNITY_ENABLE_DETAIL_NORMALMAP SHADER_API_DESKTOP UNITY_LIGHT_PROBE_PROXY_VOLUME UNITY_LIGHTMAP_FULL_HDR UNITY_NEEDS_RENDERPASS_FBFETCH_FALLBACK uKW=SHADER_STAGE_COMPUTE platform=metal flags=4294971424 reqs=16385 forceDXC=0 forceFXC=0  error: 1 plat 14 at SteerablePyramid.compute(105): signed/unsigned mismatch, unsigned assumed
+  error: 1 plat 14 at SteerablePyramid.compute(124): signed/unsigned mismatch, unsigned assumed
+  error: 1 plat 14 at SteerablePyramid.compute(130): signed/unsigned mismatch, unsigned assumed
+  error: 2 plat 14 at SteerablePyramid.compute(142): undeclared identifier 'sampler_LinearClamp'
+ ok=0 outsize=0
+
+Cmd: compileComputeKernel
+  insize=11422 file=Assets/Shaders/SteerablePyramid.compute kernel=DecomposePyramid ppOnly=0 stripLineD=0 buildPlatform=2 km=<UNITY_VERSION=60000032> pKW=UNITY_ENABLE_REFLECTION_BUFFERS UNITY_FRAMEBUFFER_FETCH_AVAILABLE UNITY_USE_DITHER_MASK_FOR_ALPHABLENDED_SHADOWS UNITY_PBS_USE_BRDF1 UNITY_SPECCUBE_BOX_PROJECTION UNITY_SPECCUBE_BLENDING UNITY_ENABLE_DETAIL_NORMALMAP SHADER_API_DESKTOP UNITY_LIGHT_PROBE_PROXY_VOLUME UNITY_LIGHTMAP_FULL_HDR UNITY_NEEDS_RENDERPASS_FBFETCH_FALLBACK uKW=SHADER_STAGE_COMPUTE platform=metal flags=4294971424 reqs=16385 forceDXC=0 forceFXC=0  error: 1 plat 14 at SteerablePyramid.compute(105): signed/unsigned mismatch, unsigned assumed
+  error: 1 plat 14 at SteerablePyramid.compute(124): signed/unsigned mismatch, unsigned assumed
+  error: 1 plat 14 at SteerablePyramid.compute(130): signed/unsigned mismatch, unsigned assumed
+  error: 2 plat 14 at SteerablePyramid.compute(142): undeclared identifier 'sampler_LinearClamp'
+ ok=0 outsize=0
+
+Cmd: compileComputeKernel
+  insize=11422 file=Assets/Shaders/SteerablePyramid.compute kernel=CreateFilters ppOnly=0 stripLineD=0 buildPlatform=2 km=<UNITY_VERSION=60000032> pKW=UNITY_ENABLE_REFLECTION_BUFFERS UNITY_FRAMEBUFFER_FETCH_AVAILABLE UNITY_USE_DITHER_MASK_FOR_ALPHABLENDED_SHADOWS UNITY_PBS_USE_BRDF1 UNITY_SPECCUBE_BOX_PROJECTION UNITY_SPECCUBE_BLENDING UNITY_ENABLE_DETAIL_NORMALMAP SHADER_API_DESKTOP UNITY_LIGHT_PROBE_PROXY_VOLUME UNITY_LIGHTMAP_FULL_HDR UNITY_NEEDS_RENDERPASS_FBFETCH_FALLBACK uKW=SHADER_STAGE_COMPUTE platform=metal flags=4294971424 reqs=16385 forceDXC=0 forceFXC=0  error: 1 plat 14 at SteerablePyramid.compute(105): signed/unsigned mismatch, unsigned assumed
+  error: 1 plat 14 at SteerablePyramid.compute(124): signed/unsigned mismatch, unsigned assumed
+  error: 1 plat 14 at SteerablePyramid.compute(130): signed/unsigned mismatch, unsigned assumed
+  error: 2 plat 14 at SteerablePyramid.compute(142): undeclared identifier 'sampler_LinearClamp'
+ ok=0 outsize=0
+
+Cmd: compileComputeKernel
+  insize=4746 file=Assets/Shaders/SteerablePyramidFilters.compute kernel=CombineFilters ppOnly=0 stripLineD=0 buildPlatform=2 km=<UNITY_VERSION=60000032> pKW=UNITY_ENABLE_REFLECTION_BUFFERS UNITY_FRAMEBUFFER_FETCH_AVAILABLE UNITY_USE_DITHER_MASK_FOR_ALPHABLENDED_SHADOWS UNITY_PBS_USE_BRDF1 UNITY_SPECCUBE_BOX_PROJECTION UNITY_SPECCUBE_BLENDING UNITY_ENABLE_DETAIL_NORMALMAP SHADER_API_DESKTOP UNITY_LIGHT_PROBE_PROXY_VOLUME UNITY_LIGHTMAP_FULL_HDR UNITY_NEEDS_RENDERPASS_FBFETCH_FALLBACK uKW=SHADER_STAGE_COMPUTE platform=metal flags=4294971424 reqs=16385 forceDXC=0 forceFXC=0 ok=1 outsize=733
+
+Cmd: compileComputeKernel
+  insize=4746 file=Assets/Shaders/SteerablePyramidFilters.compute kernel=GenerateBandPassFilter ppOnly=0 stripLineD=0 buildPlatform=2 km=<UNITY_VERSION=60000032> pKW=UNITY_ENABLE_REFLECTION_BUFFERS UNITY_FRAMEBUFFER_FETCH_AVAILABLE UNITY_USE_DITHER_MASK_FOR_ALPHABLENDED_SHADOWS UNITY_PBS_USE_BRDF1 UNITY_SPECCUBE_BOX_PROJECTION UNITY_SPECCUBE_BLENDING UNITY_ENABLE_DETAIL_NORMALMAP SHADER_API_DESKTOP UNITY_LIGHT_PROBE_PROXY_VOLUME UNITY_LIGHTMAP_FULL_HDR UNITY_NEEDS_RENDERPASS_FBFETCH_FALLBACK uKW=SHADER_STAGE_COMPUTE platform=metal flags=4294971424 reqs=16385 forceDXC=0 forceFXC=0 ok=1 outsize=5241
+
+Cmd: compileComputeKernel
+  insize=4746 file=Assets/Shaders/SteerablePyramidFilters.compute kernel=GenerateHighPassFilter ppOnly=0 stripLineD=0 buildPlatform=2 km=<UNITY_VERSION=60000032> pKW=UNITY_ENABLE_REFLECTION_BUFFERS UNITY_FRAMEBUFFER_FETCH_AVAILABLE UNITY_USE_DITHER_MASK_FOR_ALPHABLENDED_SHADOWS UNITY_PBS_USE_BRDF1 UNITY_SPECCUBE_BOX_PROJECTION UNITY_SPECCUBE_BLENDING UNITY_ENABLE_DETAIL_NORMALMAP SHADER_API_DESKTOP UNITY_LIGHT_PROBE_PROXY_VOLUME UNITY_LIGHTMAP_FULL_HDR UNITY_NEEDS_RENDERPASS_FBFETCH_FALLBACK uKW=SHADER_STAGE_COMPUTE platform=metal flags=4294971424 reqs=16385 forceDXC=0 forceFXC=0 ok=1 outsize=1790
+
+Cmd: compileComputeKernel
+  insize=4746 file=Assets/Shaders/SteerablePyramidFilters.compute kernel=GenerateLowPassFilter ppOnly=0 stripLineD=0 buildPlatform=2 km=<UNITY_VERSION=60000032> pKW=UNITY_ENABLE_REFLECTION_BUFFERS UNITY_FRAMEBUFFER_FETCH_AVAILABLE UNITY_USE_DITHER_MASK_FOR_ALPHABLENDED_SHADOWS UNITY_PBS_USE_BRDF1 UNITY_SPECCUBE_BOX_PROJECTION UNITY_SPECCUBE_BLENDING UNITY_ENABLE_DETAIL_NORMALMAP SHADER_API_DESKTOP UNITY_LIGHT_PROBE_PROXY_VOLUME UNITY_LIGHTMAP_FULL_HDR UNITY_NEEDS_RENDERPASS_FBFETCH_FALLBACK uKW=SHADER_STAGE_COMPUTE platform=metal flags=4294971424 reqs=16385 forceDXC=0 forceFXC=0 ok=1 outsize=1732
+
+Cmd: compileComputeKernel
+  insize=9960 file=Assets/Shaders/SteerablePyramid.compute kernel=GenerateSteerableFilters ppOnly=0 stripLineD=0 buildPlatform=2 km=<UNITY_VERSION=60000032> pKW=UNITY_ENABLE_REFLECTION_BUFFERS UNITY_FRAMEBUFFER_FETCH_AVAILABLE UNITY_USE_DITHER_MASK_FOR_ALPHABLENDED_SHADOWS UNITY_PBS_USE_BRDF1 UNITY_SPECCUBE_BOX_PROJECTION UNITY_SPECCUBE_BLENDING UNITY_ENABLE_DETAIL_NORMALMAP SHADER_API_DESKTOP UNITY_LIGHT_PROBE_PROXY_VOLUME UNITY_LIGHTMAP_FULL_HDR UNITY_NEEDS_RENDERPASS_FBFETCH_FALLBACK uKW=SHADER_STAGE_COMPUTE platform=metal flags=4294971424 reqs=16385 forceDXC=0 forceFXC=0 ok=1 outsize=2323
+
+Cmd: compileComputeKernel
+  insize=9960 file=Assets/Shaders/SteerablePyramid.compute kernel=ProcessPyramidMotion ppOnly=0 stripLineD=0 buildPlatform=2 km=<UNITY_VERSION=60000032> pKW=UNITY_ENABLE_REFLECTION_BUFFERS UNITY_FRAMEBUFFER_FETCH_AVAILABLE UNITY_USE_DITHER_MASK_FOR_ALPHABLENDED_SHADOWS UNITY_PBS_USE_BRDF1 UNITY_SPECCUBE_BOX_PROJECTION UNITY_SPECCUBE_BLENDING UNITY_ENABLE_DETAIL_NORMALMAP SHADER_API_DESKTOP UNITY_LIGHT_PROBE_PROXY_VOLUME UNITY_LIGHTMAP_FULL_HDR UNITY_NEEDS_RENDERPASS_FBFETCH_FALLBACK uKW=SHADER_STAGE_COMPUTE platform=metal flags=4294971424 reqs=16385 forceDXC=0 forceFXC=0  error: 1 plat 14 at SteerablePyramid.compute(118): use of potentially uninitialized variable (calculate_bandpass_weight)
+ ok=1 outsize=9402
+
+Cmd: compileComputeKernel
+  insize=9960 file=Assets/Shaders/SteerablePyramid.compute kernel=ReconstructFromPyramid ppOnly=0 stripLineD=0 buildPlatform=2 km=<UNITY_VERSION=60000032> pKW=UNITY_ENABLE_REFLECTION_BUFFERS UNITY_FRAMEBUFFER_FETCH_AVAILABLE UNITY_USE_DITHER_MASK_FOR_ALPHABLENDED_SHADOWS UNITY_PBS_USE_BRDF1 UNITY_SPECCUBE_BOX_PROJECTION UNITY_SPECCUBE_BLENDING UNITY_ENABLE_DETAIL_NORMALMAP SHADER_API_DESKTOP UNITY_LIGHT_PROBE_PROXY_VOLUME UNITY_LIGHTMAP_FULL_HDR UNITY_NEEDS_RENDERPASS_FBFETCH_FALLBACK uKW=SHADER_STAGE_COMPUTE platform=metal flags=4294971424 reqs=16385 forceDXC=0 forceFXC=0 ok=1 outsize=2550
+
+Cmd: compileComputeKernel
+  insize=9960 file=Assets/Shaders/SteerablePyramid.compute kernel=BuildSteerablePyramid ppOnly=0 stripLineD=0 buildPlatform=2 km=<UNITY_VERSION=60000032> pKW=UNITY_ENABLE_REFLECTION_BUFFERS UNITY_FRAMEBUFFER_FETCH_AVAILABLE UNITY_USE_DITHER_MASK_FOR_ALPHABLENDED_SHADOWS UNITY_PBS_USE_BRDF1 UNITY_SPECCUBE_BOX_PROJECTION UNITY_SPECCUBE_BLENDING UNITY_ENABLE_DETAIL_NORMALMAP SHADER_API_DESKTOP UNITY_LIGHT_PROBE_PROXY_VOLUME UNITY_LIGHTMAP_FULL_HDR UNITY_NEEDS_RENDERPASS_FBFETCH_FALLBACK uKW=SHADER_STAGE_COMPUTE platform=metal flags=4294971424 reqs=16385 forceDXC=0 forceFXC=0 ok=1 outsize=3072
+
+Cmd: compileComputeKernel
+  insize=3516 file=Assets/Shaders/SteerablePyramidDecompose.compute kernel=ConvertToSpatialDomain ppOnly=0 stripLineD=0 buildPlatform=2 km=<UNITY_VERSION=60000032> pKW=UNITY_ENABLE_REFLECTION_BUFFERS UNITY_FRAMEBUFFER_FETCH_AVAILABLE UNITY_USE_DITHER_MASK_FOR_ALPHABLENDED_SHADOWS UNITY_PBS_USE_BRDF1 UNITY_SPECCUBE_BOX_PROJECTION UNITY_SPECCUBE_BLENDING UNITY_ENABLE_DETAIL_NORMALMAP SHADER_API_DESKTOP UNITY_LIGHT_PROBE_PROXY_VOLUME UNITY_LIGHTMAP_FULL_HDR UNITY_NEEDS_RENDERPASS_FBFETCH_FALLBACK uKW=SHADER_STAGE_COMPUTE platform=metal flags=4294971424 reqs=16385 forceDXC=0 forceFXC=0 ok=1 outsize=1221
+
+Cmd: compileComputeKernel
+  insize=3516 file=Assets/Shaders/SteerablePyramidDecompose.compute kernel=ConvertToFrequencyDomain ppOnly=0 stripLineD=0 buildPlatform=2 km=<UNITY_VERSION=60000032> pKW=UNITY_ENABLE_REFLECTION_BUFFERS UNITY_FRAMEBUFFER_FETCH_AVAILABLE UNITY_USE_DITHER_MASK_FOR_ALPHABLENDED_SHADOWS UNITY_PBS_USE_BRDF1 UNITY_SPECCUBE_BOX_PROJECTION UNITY_SPECCUBE_BLENDING UNITY_ENABLE_DETAIL_NORMALMAP SHADER_API_DESKTOP UNITY_LIGHT_PROBE_PROXY_VOLUME UNITY_LIGHTMAP_FULL_HDR UNITY_NEEDS_RENDERPASS_FBFETCH_FALLBACK uKW=SHADER_STAGE_COMPUTE platform=metal flags=4294971424 reqs=16385 forceDXC=0 forceFXC=0 ok=1 outsize=1275
+
+Cmd: compileComputeKernel
+  insize=3516 file=Assets/Shaders/SteerablePyramidDecompose.compute kernel=ExtractResidualHighPass ppOnly=0 stripLineD=0 buildPlatform=2 km=<UNITY_VERSION=60000032> pKW=UNITY_ENABLE_REFLECTION_BUFFERS UNITY_FRAMEBUFFER_FETCH_AVAILABLE UNITY_USE_DITHER_MASK_FOR_ALPHABLENDED_SHADOWS UNITY_PBS_USE_BRDF1 UNITY_SPECCUBE_BOX_PROJECTION UNITY_SPECCUBE_BLENDING UNITY_ENABLE_DETAIL_NORMALMAP SHADER_API_DESKTOP UNITY_LIGHT_PROBE_PROXY_VOLUME UNITY_LIGHTMAP_FULL_HDR UNITY_NEEDS_RENDERPASS_FBFETCH_FALLBACK uKW=SHADER_STAGE_COMPUTE platform=metal flags=4294971424 reqs=16385 forceDXC=0 forceFXC=0 ok=1 outsize=1413
+
+Cmd: compileComputeKernel
+  insize=3516 file=Assets/Shaders/SteerablePyramidDecompose.compute kernel=ExtractResidualLowPass ppOnly=0 stripLineD=0 buildPlatform=2 km=<UNITY_VERSION=60000032> pKW=UNITY_ENABLE_REFLECTION_BUFFERS UNITY_FRAMEBUFFER_FETCH_AVAILABLE UNITY_USE_DITHER_MASK_FOR_ALPHABLENDED_SHADOWS UNITY_PBS_USE_BRDF1 UNITY_SPECCUBE_BOX_PROJECTION UNITY_SPECCUBE_BLENDING UNITY_ENABLE_DETAIL_NORMALMAP SHADER_API_DESKTOP UNITY_LIGHT_PROBE_PROXY_VOLUME UNITY_LIGHTMAP_FULL_HDR UNITY_NEEDS_RENDERPASS_FBFETCH_FALLBACK uKW=SHADER_STAGE_COMPUTE platform=metal flags=4294971424 reqs=16385 forceDXC=0 forceFXC=0 ok=1 outsize=1409
+
+Cmd: compileComputeKernel
+  insize=3516 file=Assets/Shaders/SteerablePyramidDecompose.compute kernel=DecomposeLevel ppOnly=0 stripLineD=0 buildPlatform=2 km=<UNITY_VERSION=60000032> pKW=UNITY_ENABLE_REFLECTION_BUFFERS UNITY_FRAMEBUFFER_FETCH_AVAILABLE UNITY_USE_DITHER_MASK_FOR_ALPHABLENDED_SHADOWS UNITY_PBS_USE_BRDF1 UNITY_SPECCUBE_BOX_PROJECTION UNITY_SPECCUBE_BLENDING UNITY_ENABLE_DETAIL_NORMALMAP SHADER_API_DESKTOP UNITY_LIGHT_PROBE_PROXY_VOLUME UNITY_LIGHTMAP_FULL_HDR UNITY_NEEDS_RENDERPASS_FBFETCH_FALLBACK uKW=SHADER_STAGE_COMPUTE platform=metal flags=4294971424 reqs=16385 forceDXC=0 forceFXC=0 ok=1 outsize=1495
+
+Cmd: compileComputeKernel
+  insize=6763 file=Assets/Shaders/SteerablePyramidReconstruct.compute kernel=InitializeReconstruction ppOnly=0 stripLineD=0 buildPlatform=2 km=<UNITY_VERSION=60000032> pKW=UNITY_ENABLE_REFLECTION_BUFFERS UNITY_FRAMEBUFFER_FETCH_AVAILABLE UNITY_USE_DITHER_MASK_FOR_ALPHABLENDED_SHADOWS UNITY_PBS_USE_BRDF1 UNITY_SPECCUBE_BOX_PROJECTION UNITY_SPECCUBE_BLENDING UNITY_ENABLE_DETAIL_NORMALMAP SHADER_API_DESKTOP UNITY_LIGHT_PROBE_PROXY_VOLUME UNITY_LIGHTMAP_FULL_HDR UNITY_NEEDS_RENDERPASS_FBFETCH_FALLBACK uKW=SHADER_STAGE_COMPUTE platform=metal flags=4294971424 reqs=16385 forceDXC=0 forceFXC=0 ok=1 outsize=931
+
+Cmd: compileComputeKernel
+  insize=6763 file=Assets/Shaders/SteerablePyramidReconstruct.compute kernel=ProcessPhaseDifferencePerLevel ppOnly=0 stripLineD=0 buildPlatform=2 km=<UNITY_VERSION=60000032> pKW=UNITY_ENABLE_REFLECTION_BUFFERS UNITY_FRAMEBUFFER_FETCH_AVAILABLE UNITY_USE_DITHER_MASK_FOR_ALPHABLENDED_SHADOWS UNITY_PBS_USE_BRDF1 UNITY_SPECCUBE_BOX_PROJECTION UNITY_SPECCUBE_BLENDING UNITY_ENABLE_DETAIL_NORMALMAP SHADER_API_DESKTOP UNITY_LIGHT_PROBE_PROXY_VOLUME UNITY_LIGHTMAP_FULL_HDR UNITY_NEEDS_RENDERPASS_FBFETCH_FALLBACK uKW=SHADER_STAGE_COMPUTE platform=metal flags=4294971424 reqs=16385 forceDXC=0 forceFXC=0 ok=1 outsize=5329
+
+Cmd: compileComputeKernel
+  insize=6763 file=Assets/Shaders/SteerablePyramidReconstruct.compute kernel=AddResiduals ppOnly=0 stripLineD=0 buildPlatform=2 km=<UNITY_VERSION=60000032> pKW=UNITY_ENABLE_REFLECTION_BUFFERS UNITY_FRAMEBUFFER_FETCH_AVAILABLE UNITY_USE_DITHER_MASK_FOR_ALPHABLENDED_SHADOWS UNITY_PBS_USE_BRDF1 UNITY_SPECCUBE_BOX_PROJECTION UNITY_SPECCUBE_BLENDING UNITY_ENABLE_DETAIL_NORMALMAP SHADER_API_DESKTOP UNITY_LIGHT_PROBE_PROXY_VOLUME UNITY_LIGHTMAP_FULL_HDR UNITY_NEEDS_RENDERPASS_FBFETCH_FALLBACK uKW=SHADER_STAGE_COMPUTE platform=metal flags=4294971424 reqs=16385 forceDXC=0 forceFXC=0 ok=1 outsize=2159
+
+Cmd: compileComputeKernel
+  insize=6763 file=Assets/Shaders/SteerablePyramidReconstruct.compute kernel=AccumulatePyramidLevel ppOnly=0 stripLineD=0 buildPlatform=2 km=<UNITY_VERSION=60000032> pKW=UNITY_ENABLE_REFLECTION_BUFFERS UNITY_FRAMEBUFFER_FETCH_AVAILABLE UNITY_USE_DITHER_MASK_FOR_ALPHABLENDED_SHADOWS UNITY_PBS_USE_BRDF1 UNITY_SPECCUBE_BOX_PROJECTION UNITY_SPECCUBE_BLENDING UNITY_ENABLE_DETAIL_NORMALMAP SHADER_API_DESKTOP UNITY_LIGHT_PROBE_PROXY_VOLUME UNITY_LIGHTMAP_FULL_HDR UNITY_NEEDS_RENDERPASS_FBFETCH_FALLBACK uKW=SHADER_STAGE_COMPUTE platform=metal flags=4294971424 reqs=16385 forceDXC=0 forceFXC=0 ok=1 outsize=2628
+

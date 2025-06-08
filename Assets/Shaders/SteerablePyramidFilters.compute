@@ -1,0 +1,153 @@
+// SteerablePyramidFilters.compute
+// Generates steerable pyramid filters in frequency domain
+
+#pragma kernel GenerateLowPassFilter
+#pragma kernel GenerateHighPassFilter
+#pragma kernel GenerateBandPassFilter
+#pragma kernel CombineFilters
+
+#define PI 3.14159265359
+#define GROUP_SIZE 32
+
+// Filter parameters
+int _Width;
+int _Height;
+int _NumOrientations;
+int _ScaleIndex;
+float _Sigma;
+
+// Output textures for filters
+RWTexture2D<float> _LowPassFilter;
+RWTexture2D<float> _HighPassFilter;
+RWTexture2D<float4> _BandPassFilter; // Stores multiple orientations in RGBA
+
+// Utility functions
+float2 GetNormalizedFrequency(uint2 coord)
+{
+    // Convert to centered coordinates in frequency domain
+    float fx = ((float)coord.x - (float)_Width * 0.5) / (float)_Width;
+    float fy = ((float)coord.y - (float)_Height * 0.5) / (float)_Height;
+    return float2(fx, fy);
+}
+
+float GetRadialFrequency(float2 freq)
+{
+    return sqrt(freq.x * freq.x + freq.y * freq.y);
+}
+
+float GetAngle(float2 freq)
+{
+    return atan2(freq.y, freq.x);
+}
+
+// Low-pass filter: L(r) = exp(-(r/(2^scale * sigma))^2)
+[numthreads(GROUP_SIZE, GROUP_SIZE, 1)]
+void GenerateLowPassFilter(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= (uint)_Width || id.y >= (uint)_Height)
+        return;
+    
+    float2 freq = GetNormalizedFrequency(id.xy);
+    float r = GetRadialFrequency(freq) * 2.0 * PI; // Scale to radians
+    
+    // Scale-dependent sigma
+    float scaleSigma = pow(2.0, (float)_ScaleIndex) * _Sigma;
+    
+    // Gaussian low-pass filter
+    float filter = exp(-(r * r) / (2.0 * scaleSigma * scaleSigma));
+    
+    _LowPassFilter[id.xy] = filter;
+}
+
+// High-pass filter: H(r) = 1 - L0(r) for scale 0
+[numthreads(GROUP_SIZE, GROUP_SIZE, 1)]
+void GenerateHighPassFilter(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= (uint)_Width || id.y >= (uint)_Height)
+        return;
+    
+    float2 freq = GetNormalizedFrequency(id.xy);
+    float r = GetRadialFrequency(freq) * 2.0 * PI;
+    
+    // Initial low-pass filter (scale 0)
+    float lowPass0 = exp(-(r * r) / (2.0 * _Sigma * _Sigma));
+    
+    // High-pass complement
+    float filter = 1.0 - lowPass0;
+    
+    // Avoid division by zero at DC
+    if (r < 0.001)
+        filter = 0.0;
+    
+    _HighPassFilter[id.xy] = filter;
+}
+
+// Band-pass oriented filters: B(r,θ) = (L(s-1) - L(s)) * G(θ)
+[numthreads(GROUP_SIZE, GROUP_SIZE, 1)]
+void GenerateBandPassFilter(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= (uint)_Width || id.y >= (uint)_Height)
+        return;
+    
+    float2 freq = GetNormalizedFrequency(id.xy);
+    float r = GetRadialFrequency(freq) * 2.0 * PI;
+    float theta = GetAngle(freq);
+    
+    // Radial component: difference of Gaussians
+    float scaleSigma = pow(2.0, (float)_ScaleIndex) * _Sigma;
+    float prevScaleSigma = pow(2.0, (float)_ScaleIndex - 1.0) * _Sigma;
+    
+    float lowPassCurrent = exp(-(r * r) / (2.0 * scaleSigma * scaleSigma));
+    float lowPassPrev = exp(-(r * r) / (2.0 * prevScaleSigma * prevScaleSigma));
+    float radialComponent = lowPassPrev - lowPassCurrent;
+    
+    // Avoid processing DC component
+    if (r < 0.001)
+    {
+        _BandPassFilter[id.xy] = float4(0, 0, 0, 0);
+        return;
+    }
+    
+    // Generate oriented filters (up to 4 orientations in RGBA)
+    float4 orientedFilters = float4(0, 0, 0, 0);
+    
+    for (int i = 0; i < min(_NumOrientations, 4); i++)
+    {
+        float centerAngle = (float)i * PI / (float)_NumOrientations;
+        float angleDiff = theta - centerAngle;
+        
+        // Wrap angle difference to [-PI, PI]
+        while (angleDiff > PI) angleDiff -= 2.0 * PI;
+        while (angleDiff < -PI) angleDiff += 2.0 * PI;
+        
+        // von Mises distribution for angular selectivity
+        float kappa = 4.0; // Concentration parameter
+        float angularComponent = exp(kappa * cos(angleDiff));
+        
+        // Normalize
+        float normalizer = 1.0 / (2.0 * PI * sinh(kappa));
+        angularComponent *= normalizer;
+        
+        // Combine radial and angular components
+        float filter = radialComponent * angularComponent;
+        
+        // Store in appropriate channel
+        if (i == 0) orientedFilters.r = filter;
+        else if (i == 1) orientedFilters.g = filter;
+        else if (i == 2) orientedFilters.b = filter;
+        else if (i == 3) orientedFilters.a = filter;
+    }
+    
+    _BandPassFilter[id.xy] = orientedFilters;
+}
+
+// Combine all filters for visualization/debugging
+[numthreads(GROUP_SIZE, GROUP_SIZE, 1)]
+void CombineFilters(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= (uint)_Width || id.y >= (uint)_Height)
+        return;
+    
+    // This kernel can be used to combine and visualize all filters
+    // Implementation depends on specific visualization needs
+}

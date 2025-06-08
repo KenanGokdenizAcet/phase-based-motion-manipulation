@@ -1,230 +1,295 @@
-#pragma kernel BuildPyramidLevel
-#pragma kernel ComputePhaseDelta
-#pragma kernel ApplyMotionMagnification
-#pragma kernel AccumulateReconstruction
-#pragma kernel ClearBuffer
+#pragma kernel BuildSteerablePyramid
+#pragma kernel ReconstructFromPyramid
+#pragma kernel ProcessPyramidMotion
+#pragma kernel GenerateSteerableFilters
 
-#define GROUP_SIZE_X 32
-#define GROUP_SIZE_Y 32
-#define PI 3.14159265359f
+#define GROUP_SIZE_X 16
+#define GROUP_SIZE_Y 16
+#define PI 3.14159265359
+#define MAX_LEVELS 6
+#define NUM_ORIENTATIONS 4
 
-// Complex number type
-typedef float2 Complex;
+// Input/Output textures
+Texture2D<float4> _InputTexture;
+Texture2D<float4> _PreviousInputTexture;
+RWTexture2D<float4> _OutputTexture;
 
-// Global parameters
-int Width;
-int Height;
-int BatchStart;
-int BatchSize;
-float PhaseMag;
-bool Attenuate;
-int FilterIndex;
+// Pyramid level textures (we'll use texture arrays)
+RWTexture2DArray<float4> _PyramidLevels;        // [level][orientation]
+RWTexture2DArray<float4> _PreviousPyramidLevels;
+RWTexture2DArray<float4> _ProcessedPyramidLevels;
 
-// Textures
-Texture2D<float4> CurrentDFT;
-Texture2D<float4> ReferenceDFT;
+// Filter textures for steerable pyramid
+RWTexture2DArray<float4> _SteerableFilters;     // [orientation]
+RWTexture2D<float4> _LowPassFilter;
+RWTexture2D<float4> _HighPassFilter;
 
-// Buffers
-RWStructuredBuffer<Complex> PyramidFilters; // All pyramid filters
-RWStructuredBuffer<Complex> PhaseDeltas; // Phase differences
-RWStructuredBuffer<Complex> ReconDFT; // Reconstruction buffer
-RWStructuredBuffer<Complex> CurrentPyramidLevels; // Temporary storage for current pyramid levels
-RWStructuredBuffer<Complex> ReferencePyramidLevels; // Temporary storage for reference pyramid levels
+// Parameters
+int _Width;
+int _Height;
+int _NumLevels;
+int _NumOrientations;
+float _PhaseScale;
+float _MagnitudeThreshold;
 
-// Complex operations
-inline Complex ComplexMultiply(Complex a, Complex b)
+// Bandpass filter parameters
+int _ApplyBandpassFilter;
+float _LowFreqCutoff;
+float _HighFreqCutoff;
+float _FilterSteepness;
+float _MotionSensitivity;
+float _EdgeEnhancement;
+
+// Complex number operations
+float2 complex_multiply(float2 a, float2 b)
 {
     return float2(a.x * b.x - a.y * b.y, a.x * b.y + a.y * b.x);
 }
 
-inline float ComplexMagnitude(Complex z)
+float complex_magnitude(float2 z)
 {
     return sqrt(z.x * z.x + z.y * z.y);
 }
 
-inline float ComplexPhase(Complex z)
+float complex_phase(float2 z)
 {
     return atan2(z.y, z.x);
 }
 
-inline Complex ComplexFromPolar(float mag, float phase)
+float2 complex_from_polar(float magnitude, float phase)
 {
-    return float2(mag * cos(phase), mag * sin(phase));
+    return float2(magnitude * cos(phase), magnitude * sin(phase));
 }
 
-inline Complex ComplexExp(float phase)
+float2 complex_exp(float phase)
 {
     return float2(cos(phase), sin(phase));
 }
 
-inline Complex ComplexConjugate(Complex z)
+float normalize_phase(float phase)
 {
-    return float2(z.x, -z.y);
+    while (phase > PI)
+        phase -= 2.0 * PI;
+    while (phase < -PI)
+        phase += 2.0 * PI;
+    return phase;
 }
 
-// Normalize phase to [-pi, pi]
-float NormalizePhase(float phase)
+// Generate steerable filters (Derivative of Gaussian based)
+float2 generate_steerable_filter(float2 coord, int orientation, int width, int height)
 {
-    // Using fmod for better performance
-    phase = fmod(phase + PI, 2.0f * PI);
-    if (phase < 0)
-        phase += 2.0f * PI;
-    return phase - PI;
+    // Convert to centered coordinates
+    float x = (coord.x / (float)width - 0.5) * 2.0;
+    float y = (coord.y / (float)height - 0.5) * 2.0;
+    
+    // Orientation angle
+    float angle = (float)orientation * PI / (float)NUM_ORIENTATIONS;
+    
+    // Rotate coordinates
+    float cos_theta = cos(angle);
+    float sin_theta = sin(angle);
+    float x_rot = x * cos_theta + y * sin_theta;
+    float y_rot = -x * sin_theta + y * cos_theta;
+    
+    // Steerable filter (derivative of Gaussian)
+    float sigma = 0.5;
+    float gaussian = exp(-(x_rot * x_rot + y_rot * y_rot) / (2.0 * sigma * sigma));
+    
+    // First derivative in x direction (creates oriented edge detector)
+    float derivative_x = -x_rot / (sigma * sigma) * gaussian;
+    
+    // Return as complex number (real part only for now)
+    return float2(derivative_x, 0.0);
 }
 
-// Build pyramid levels by applying filters in frequency domain
+// Calculate spatial frequency for bandpass filtering
+float calculate_spatial_frequency(uint2 coord, int width, int height)
+{
+    float fx = ((float)coord.x / (float)width) - 0.5;
+    float fy = ((float)coord.y / (float)height) - 0.5;
+    float freq = sqrt(fx * fx + fy * fy);
+    return min(freq / 0.707, 1.0);
+}
+
+// Bandpass filter weight calculation
+float calculate_bandpass_weight(float spatialFreq)
+{
+    if (_ApplyBandpassFilter == 0)
+        return 1.0;
+    
+    float weight = 1.0;
+    
+    // Low frequency cutoff
+    if (spatialFreq < _LowFreqCutoff)
+    {
+        float ratio = spatialFreq / max(_LowFreqCutoff, 0.001);
+        weight *= pow(ratio, _FilterSteepness);
+    }
+    
+    // High frequency cutoff
+    if (spatialFreq > _HighFreqCutoff)
+    {
+        float ratio = (1.0 - spatialFreq) / max(1.0 - _HighFreqCutoff, 0.001);
+        weight *= pow(ratio, _FilterSteepness);
+    }
+    
+    weight *= _MotionSensitivity;
+    
+    // Edge enhancement
+    if (spatialFreq > _LowFreqCutoff && spatialFreq < _HighFreqCutoff)
+    {
+        float edgeFactor = 1.0 + _EdgeEnhancement * 
+                          sin(PI * (spatialFreq - _LowFreqCutoff) / (_HighFreqCutoff - _LowFreqCutoff));
+        weight *= edgeFactor;
+    }
+    
+    return max(weight, 0.0);
+}
+
+// Convolution with steerable filter
+float2 convolve_with_filter(uint2 coord, Texture2D<float4> input, float2 filter_response)
+{
+    float4 pixel = input[coord];
+    float luminance = dot(pixel.rgb, float3(0.299, 0.587, 0.114));
+    
+    // Convolve with filter (simplified - in practice you'd do proper convolution)
+    return float2(luminance * filter_response.x, luminance * filter_response.y);
+}
+
+// Generate steerable filters kernel
 [numthreads(GROUP_SIZE_X, GROUP_SIZE_Y, 1)]
-void BuildPyramidLevel(uint3 id : SV_DispatchThreadID)
+void GenerateSteerableFilters(uint3 id : SV_DispatchThreadID)
 {
-    if (id.x >= (uint)Width || id.y >= (uint)Height)
+    if (id.x >= (uint)_Width || id.y >= (uint)_Height)
         return;
     
-    uint pixelIndex = id.y * Width + id.x;
-    
-    // Get DFT values
-    float4 currentDFTValue = CurrentDFT[id.xy];
-    float4 refDFTValue = ReferenceDFT[id.xy];
-    
-    Complex currentComplex = float2(currentDFTValue.x, currentDFTValue.y);
-    Complex refComplex = float2(refDFTValue.x, refDFTValue.y);
-    
-    // Process each filter in the batch
-    for (int i = 0; i < BatchSize; i++)
+    // Generate filters for each orientation
+    for (int orientation = 0; orientation < _NumOrientations; orientation++)
     {
-        int filterIndex = BatchStart + i;
-        uint filterOffset = filterIndex * Width * Height;
-        
-        // Get filter value at this position
-        Complex filter = PyramidFilters[filterOffset + pixelIndex];
-        
-        // Apply filter: pyramid_level = DFT * filter
-        Complex currentPyr = ComplexMultiply(currentComplex, filter);
-        Complex refPyr = ComplexMultiply(refComplex, filter);
-        
-        // Store pyramid levels for next stage
-        uint levelOffset = i * Width * Height + pixelIndex;
-        CurrentPyramidLevels[levelOffset] = currentPyr;
-        ReferencePyramidLevels[levelOffset] = refPyr;
+        float2 filter_response = generate_steerable_filter(float2(id.x, id.y), orientation, _Width, _Height);
+        _SteerableFilters[uint3(id.x, id.y, orientation)] = float4(filter_response.x, filter_response.y, 0, 1);
     }
 }
 
-// Compute phase delta between current and reference pyramid levels
+// Build steerable pyramid kernel
 [numthreads(GROUP_SIZE_X, GROUP_SIZE_Y, 1)]
-void ComputePhaseDelta(uint3 id : SV_DispatchThreadID)
+void BuildSteerablePyramid(uint3 id : SV_DispatchThreadID)
 {
-    if (id.x >= (uint)Width || id.y >= (uint)Height)
+    if (id.x >= (uint)_Width || id.y >= (uint)_Height)
         return;
     
-    uint pixelIndex = id.y * Width + id.x;
-    
-    for (int i = 0; i < BatchSize; i++)
+    // Process each pyramid level
+    for (int level = 0; level < _NumLevels; level++)
     {
-        uint levelOffset = i * Width * Height + pixelIndex;
+        // Calculate scale factor for this level
+        int scale = 1 << level;
+        uint2 scaled_coord = uint2(id.x / scale, id.y / scale);
         
-        // Get pyramid levels
-        Complex currentPyr = CurrentPyramidLevels[levelOffset];
-        Complex refPyr = ReferencePyramidLevels[levelOffset];
+        if (scaled_coord.x >= (uint)(_Width >> level) || scaled_coord.y >= (uint)(_Height >> level))
+            continue;
         
-        // Calculate phases
-        float currentPhase = ComplexPhase(currentPyr);
-        float refPhase = ComplexPhase(refPyr);
-        
-        // Calculate phase delta (keeping user's approach: previous - current)
-        float delta = NormalizePhase(refPhase - currentPhase);
-        
-        // Store phase delta
-        PhaseDeltas[levelOffset] = float2(delta, 0);
-    }
-}
-
-// Apply motion magnification and reconstruct
-[numthreads(GROUP_SIZE_X, GROUP_SIZE_Y, 1)]
-void ApplyMotionMagnification(uint3 id : SV_DispatchThreadID)
-{
-    if (id.x >= (uint)Width || id.y >= (uint)Height)
-        return;
-    
-    uint pixelIndex = id.y * Width + id.x;
-    
-    for (int i = 0; i < BatchSize; i++)
-    {
-        int filterIndex = BatchStart + i;
-        uint filterOffset = filterIndex * Width * Height;
-        uint levelOffset = i * Width * Height + pixelIndex;
-        
-        // Get filter
-        Complex filter = PyramidFilters[filterOffset + pixelIndex];
-        
-        // Get current pyramid level
-        Complex currentPyr = CurrentPyramidLevels[levelOffset];
-        
-        // Get phase delta (after temporal filtering)
-        float delta = PhaseDeltas[levelOffset].x;
-        
-        // Apply motion magnification
-        float modifiedPhase = delta * PhaseMag;
-        
-        // Apply attenuation if enabled
-        if (Attenuate)
+        // Process each orientation
+        for (int orientation = 0; orientation < _NumOrientations; orientation++)
         {
-            Complex refPyr = ReferencePyramidLevels[levelOffset];
+            // Get filter for this orientation
+            float4 filter = _SteerableFilters[uint3(id.x, id.y, orientation)];
             
-            float currentMag = ComplexMagnitude(currentPyr);
-            float refPhase = ComplexPhase(refPyr);
+            // Convolve input with steerable filter
+            float2 response = convolve_with_filter(id.xy, _InputTexture, filter.xy);
             
-            // Replace with reference phase while keeping current magnitude
-            currentPyr = ComplexFromPolar(currentMag, refPhase);
+            // Store complex response in pyramid
+            int pyramid_index = level * _NumOrientations + orientation;
+            _PyramidLevels[uint3(id.x, id.y, pyramid_index)] = float4(response.x, response.y, 0, 1);
         }
-        
-        // Apply phase modification: curr_pyr * exp(1j * modified_phase)
-        Complex expPhase = ComplexExp(modifiedPhase);
-        Complex modifiedPyr = ComplexMultiply(currentPyr, expPhase);
-        
-        // Reconstruct by applying filter again (as in Python: recon_level_batch)
-        Complex reconstructed = ComplexMultiply(modifiedPyr, filter);
-        
-        // Accumulate to reconstruction buffer
-        uint reconIndex = pixelIndex;
-        ReconDFT[reconIndex].x += reconstructed.x;
-        ReconDFT[reconIndex].y += reconstructed.y;
     }
 }
 
-// Clear buffer kernel
+// Process pyramid motion kernel
 [numthreads(GROUP_SIZE_X, GROUP_SIZE_Y, 1)]
-void ClearBuffer(uint3 id : SV_DispatchThreadID)
+void ProcessPyramidMotion(uint3 id : SV_DispatchThreadID)
 {
-    if (id.x >= (uint)Width || id.y >= (uint)Height)
+    if (id.x >= (uint)_Width || id.y >= (uint)_Height)
         return;
     
-    uint pixelIndex = id.y * Width + id.x;
-    ReconDFT[pixelIndex] = float2(0, 0);
+    // Process each pyramid level and orientation
+    for (int level = 0; level < _NumLevels; level++)
+    {
+        for (int orientation = 0; orientation < _NumOrientations; orientation++)
+        {
+            int pyramid_index = level * _NumOrientations + orientation;
+            
+            // Get current and previous pyramid responses
+            float4 current = _PyramidLevels[uint3(id.x, id.y, pyramid_index)];
+            float4 previous = _PreviousPyramidLevels[uint3(id.x, id.y, pyramid_index)];
+            
+            float2 current_complex = current.rg;
+            float2 previous_complex = previous.rg;
+            
+            // Calculate magnitudes
+            float current_magnitude = complex_magnitude(current_complex);
+            float previous_magnitude = complex_magnitude(previous_complex);
+            
+            // Skip if magnitude too small
+            if (current_magnitude < _MagnitudeThreshold || previous_magnitude < _MagnitudeThreshold)
+            {
+                _ProcessedPyramidLevels[uint3(id.x, id.y, pyramid_index)] = current;
+                continue;
+            }
+            
+            // Calculate phase difference
+            float current_phase = complex_phase(current_complex);
+            float previous_phase = complex_phase(previous_complex);
+            float phase_delta = normalize_phase(previous_phase - current_phase);
+            
+            // Apply bandpass filter to phase delta
+            float spatial_freq = calculate_spatial_frequency(id.xy, _Width >> level, _Height >> level);
+            float bandpass_weight = calculate_bandpass_weight(spatial_freq);
+            float filtered_delta = phase_delta * bandpass_weight;
+            
+            // Apply motion magnification
+            float magnified_delta = filtered_delta * _PhaseScale;
+            
+            // Create modified complex response
+            float2 exp_term = complex_exp(magnified_delta);
+            float2 modified_complex = complex_multiply(current_complex, exp_term);
+            
+            // Store processed result
+            _ProcessedPyramidLevels[uint3(id.x, id.y, pyramid_index)] = 
+                float4(modified_complex.x, modified_complex.y, 0, 1);
+        }
+    }
 }
 
-// Accumulate hi/lo pass components
+// Reconstruct from pyramid kernel
 [numthreads(GROUP_SIZE_X, GROUP_SIZE_Y, 1)]
-void AccumulateReconstruction(uint3 id : SV_DispatchThreadID)
+void ReconstructFromPyramid(uint3 id : SV_DispatchThreadID)
 {
-    if (id.x >= (uint)Width || id.y >= (uint)Height)
+    if (id.x >= (uint)_Width || id.y >= (uint)_Height)
         return;
     
-    uint pixelIndex = id.y * Width + id.x;
+    float3 reconstructed = float3(0, 0, 0);
     
-    // Get filter (hi-pass or lo-pass based on FilterIndex)
-    uint filterOffset = FilterIndex * Width * Height;
-    Complex filter = PyramidFilters[filterOffset + pixelIndex];
+    // Sum contributions from all pyramid levels and orientations
+    for (int level = 0; level < _NumLevels; level++)
+    {
+        for (int orientation = 0; orientation < _NumOrientations; orientation++)
+        {
+            int pyramid_index = level * _NumOrientations + orientation;
+            
+            // Get processed pyramid response
+            float4 response = _ProcessedPyramidLevels[uint3(id.x, id.y, pyramid_index)];
+            
+            // Take magnitude as contribution (could also use real part)
+            float contribution = complex_magnitude(response.rg);
+            
+            // Weight by level (coarser levels contribute less)
+            float level_weight = 1.0 / (1.0 + (float)level);
+            
+            reconstructed.rgb += contribution * level_weight / (float)_NumOrientations;
+        }
+    }
     
-    // Get current DFT value
-    float4 currentDFTValue = CurrentDFT[id.xy];
-    Complex currentComplex = float2(currentDFTValue.x, currentDFTValue.y);
-    
-    // Apply filter to get pyramid level
-    Complex pyramidLevel = ComplexMultiply(currentComplex, filter);
-    
-    // Reconstruct: multiply by filter again
-    Complex reconstructed = ComplexMultiply(pyramidLevel, filter);
-    
-    // Accumulate
-    ReconDFT[pixelIndex].x += reconstructed.x;
-    ReconDFT[pixelIndex].y += reconstructed.y;
+    // Normalize and output
+    reconstructed = saturate(reconstructed);
+    _OutputTexture[id.xy] = float4(reconstructed, 1.0);
 }

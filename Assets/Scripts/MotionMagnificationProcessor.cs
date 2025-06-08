@@ -4,12 +4,27 @@ using System.Collections.Generic;
 [RequireComponent(typeof(Camera))]
 public class MotionMagnificationProcessor : MonoBehaviour
 {
+    [Header("Compute Shaders")]
     [SerializeField] private ComputeShader fftComputeShader;
     [SerializeField] private ComputeShader phaseDifferenceComputeShader;
+    [SerializeField] private ComputeShader pyramidFiltersComputeShader;
+    [SerializeField] private ComputeShader pyramidDecomposeComputeShader;
+    [SerializeField] private ComputeShader pyramidReconstructComputeShader;
+    
+    [Header("Processing Mode")]
+    [SerializeField] private bool useSteerablePyramid = false;
     [SerializeField] private bool applyMotionMagnification = true;
     [SerializeField] private bool showMagnitude = false;
     [SerializeField] private bool showPhase = false;
+    [SerializeField] private bool showPyramidLevel = false;
+    [SerializeField] private int pyramidLevelToShow = 0;
     [SerializeField] private bool applyScaling = true;
+    
+    [Header("Steerable Pyramid Parameters")]
+    [SerializeField] [Range(1, 6)] private int pyramidLevels = 4;
+    [SerializeField] [Range(1, 4)] private int numOrientations = 4;
+    [SerializeField] [Range(0.1f, 2.0f)] private float pyramidSigma = 0.67f;
+    [SerializeField] private bool includeHighPassInReconstruction = false;
     
     // YIQ adjustment parameters
     private float yMultiplier = 1.0f;
@@ -45,6 +60,12 @@ public class MotionMagnificationProcessor : MonoBehaviour
     // Textures for processing
     private Dictionary<string, RenderTexture> textures = new Dictionary<string, RenderTexture>();
     
+    // Pyramid-specific textures
+    private List<RenderTexture> currentPyramidLevels = new List<RenderTexture>();
+    private List<RenderTexture> previousPyramidLevels = new List<RenderTexture>();
+    private List<RenderTexture> processedPyramidLevels = new List<RenderTexture>();
+    private List<RenderTexture> pyramidFilters = new List<RenderTexture>();
+    
     // Compute buffers
     private ComputeBuffer complexBuffer1;
     private ComputeBuffer complexBuffer2;
@@ -63,7 +84,7 @@ public class MotionMagnificationProcessor : MonoBehaviour
     private Material extractYMaterial;
     private Material combineChannelsMaterial;
     
-    // Kernel IDs
+    // Kernel IDs for existing shaders
     private int computeBitRevIndicesKernel;
     private int computeTwiddleFactorsKernel;
     private int convertTexToComplexKernel;
@@ -80,6 +101,18 @@ public class MotionMagnificationProcessor : MonoBehaviour
     private int butterflyByRowKernel;
     private int butterflyByColKernel;
     private int processPhaseDifferenceKernel;
+    
+    // Kernel IDs for pyramid shaders
+    private int generateLowPassFilterKernel;
+    private int generateHighPassFilterKernel;
+    private int generateBandPassFilterKernel;
+    private int decomposeLevelKernel;
+    private int extractResidualLowPassKernel;
+    private int extractResidualHighPassKernel;
+    private int initializeReconstructionKernel;
+    private int processPhaseDifferencePerLevelKernel;
+    private int accumulatePyramidLevelKernel;
+    private int addResidualsKernel;
     
     private bool isFirstFrame = true;
     private bool isInitialized = false;
@@ -133,6 +166,9 @@ public class MotionMagnificationProcessor : MonoBehaviour
         }
         textures.Clear();
         
+        // Release pyramid textures
+        ReleasePyramidTextures();
+        
         DestroyMaterial(ref rgbToYiqMaterial);
         DestroyMaterial(ref yiqToRgbMaterial);
         DestroyMaterial(ref padMaterial);
@@ -141,6 +177,23 @@ public class MotionMagnificationProcessor : MonoBehaviour
         DestroyMaterial(ref blurMaterial);
         DestroyMaterial(ref extractYMaterial);
         DestroyMaterial(ref combineChannelsMaterial);
+    }
+    
+    private void ReleasePyramidTextures()
+    {
+        foreach (var tex in currentPyramidLevels)
+            if (tex != null) tex.Release();
+        foreach (var tex in previousPyramidLevels)
+            if (tex != null) tex.Release();
+        foreach (var tex in processedPyramidLevels)
+            if (tex != null) tex.Release();
+        foreach (var tex in pyramidFilters)
+            if (tex != null) tex.Release();
+            
+        currentPyramidLevels.Clear();
+        previousPyramidLevels.Clear();
+        processedPyramidLevels.Clear();
+        pyramidFilters.Clear();
     }
     
     private void ReleaseBuffer(ref ComputeBuffer buffer)
@@ -204,6 +257,11 @@ public class MotionMagnificationProcessor : MonoBehaviour
         CreateTexture("previousDFTTexture", width, height, RenderTextureFormat.ARGBFloat);
         CreateTexture("modifiedDFTTexture", width, height, RenderTextureFormat.ARGBFloat);
         
+        // Pyramid-specific textures
+        CreateTexture("pyramidReconstructionDFT", width, height, RenderTextureFormat.RGFloat);
+        CreateTexture("lowPassResidualDFT", width, height, RenderTextureFormat.RGFloat);
+        CreateTexture("highPassResidualDFT", width, height, RenderTextureFormat.RGFloat);
+        
         // Debug textures
         CreateTexture("magnitudeTexture", width, height, RenderTextureFormat.RFloat);
         CreateTexture("phaseTexture", width, height, RenderTextureFormat.RFloat);
@@ -218,6 +276,23 @@ public class MotionMagnificationProcessor : MonoBehaviour
         bitRevIndicesBuffer = new ComputeBuffer(Mathf.Max(width, height), sizeof(int));
         twiddleFactorsBuffer = new ComputeBuffer(Mathf.Max(width, height) / 2, complexSize);
 
+        // Initialize kernel IDs
+        InitializeKernelIDs();
+        
+        // Initialize pyramid structures if enabled
+        if (useSteerablePyramid)
+        {
+            InitializePyramidStructures();
+        }
+
+        // Precompute FFT data
+        PrecomputeFFTData();
+
+        isInitialized = true;
+    }
+    
+    private void InitializeKernelIDs()
+    {
         // Get kernel IDs from FFT compute shader
         computeBitRevIndicesKernel = fftComputeShader.FindKernel("ComputeBitRevIndices");
         computeTwiddleFactorsKernel = fftComputeShader.FindKernel("ComputeTwiddleFactors");
@@ -240,15 +315,99 @@ public class MotionMagnificationProcessor : MonoBehaviour
         {
             processPhaseDifferenceKernel = phaseDifferenceComputeShader.FindKernel("ProcessPhaseDifference");
         }
-        else
+        
+        // Get kernel IDs from pyramid shaders
+        if (pyramidFiltersComputeShader != null)
         {
-            Debug.LogError("Phase Difference Compute Shader is not assigned!");
+            generateLowPassFilterKernel = pyramidFiltersComputeShader.FindKernel("GenerateLowPassFilter");
+            generateHighPassFilterKernel = pyramidFiltersComputeShader.FindKernel("GenerateHighPassFilter");
+            generateBandPassFilterKernel = pyramidFiltersComputeShader.FindKernel("GenerateBandPassFilter");
         }
-
-        // Precompute FFT data
-        PrecomputeFFTData();
-
-        isInitialized = true;
+        
+        if (pyramidDecomposeComputeShader != null)
+        {
+            decomposeLevelKernel = pyramidDecomposeComputeShader.FindKernel("DecomposeLevel");
+            extractResidualLowPassKernel = pyramidDecomposeComputeShader.FindKernel("ExtractResidualLowPass");
+            extractResidualHighPassKernel = pyramidDecomposeComputeShader.FindKernel("ExtractResidualHighPass");
+        }
+        
+        if (pyramidReconstructComputeShader != null)
+        {
+            initializeReconstructionKernel = pyramidReconstructComputeShader.FindKernel("InitializeReconstruction");
+            processPhaseDifferencePerLevelKernel = pyramidReconstructComputeShader.FindKernel("ProcessPhaseDifferencePerLevel");
+            accumulatePyramidLevelKernel = pyramidReconstructComputeShader.FindKernel("AccumulatePyramidLevel");
+            addResidualsKernel = pyramidReconstructComputeShader.FindKernel("AddResiduals");
+        }
+    }
+    
+    private void InitializePyramidStructures()
+    {
+        // Clear existing pyramid textures
+        ReleasePyramidTextures();
+        
+        // Create pyramid level textures
+        for (int i = 0; i < pyramidLevels; i++)
+        {
+            // Store multiple orientations in RGBA channels
+            RenderTexture currentLevel = new RenderTexture(width, height, 0, RenderTextureFormat.ARGBFloat);
+            currentLevel.enableRandomWrite = true;
+            currentLevel.Create();
+            currentPyramidLevels.Add(currentLevel);
+            
+            RenderTexture previousLevel = new RenderTexture(width, height, 0, RenderTextureFormat.ARGBFloat);
+            previousLevel.enableRandomWrite = true;
+            previousLevel.Create();
+            previousPyramidLevels.Add(previousLevel);
+            
+            RenderTexture processedLevel = new RenderTexture(width, height, 0, RenderTextureFormat.ARGBFloat);
+            processedLevel.enableRandomWrite = true;
+            processedLevel.Create();
+            processedPyramidLevels.Add(processedLevel);
+        }
+        
+        // Create filter textures
+        CreateTexture("pyramidLowPassFilter", width, height, RenderTextureFormat.RFloat);
+        CreateTexture("pyramidHighPassFilter", width, height, RenderTextureFormat.RFloat);
+        
+        for (int i = 0; i < pyramidLevels; i++)
+        {
+            RenderTexture bandPassFilter = new RenderTexture(width, height, 0, RenderTextureFormat.ARGBFloat);
+            bandPassFilter.enableRandomWrite = true;
+            bandPassFilter.Create();
+            pyramidFilters.Add(bandPassFilter);
+        }
+        
+        // Generate pyramid filters
+        GeneratePyramidFilters();
+    }
+    
+    private void GeneratePyramidFilters()
+    {
+        if (pyramidFiltersComputeShader == null) return;
+        
+        // Set common parameters
+        pyramidFiltersComputeShader.SetInt("_Width", width);
+        pyramidFiltersComputeShader.SetInt("_Height", height);
+        pyramidFiltersComputeShader.SetInt("_NumOrientations", numOrientations);
+        pyramidFiltersComputeShader.SetFloat("_Sigma", pyramidSigma);
+        
+        // Generate high-pass filter
+        pyramidFiltersComputeShader.SetTexture(generateHighPassFilterKernel, "_HighPassFilter", textures["pyramidHighPassFilter"]);
+        DispatchCompute(pyramidFiltersComputeShader, generateHighPassFilterKernel, width, height);
+        
+        // Generate filters for each pyramid level
+        for (int i = 0; i < pyramidLevels; i++)
+        {
+            pyramidFiltersComputeShader.SetInt("_ScaleIndex", i);
+            
+            // Generate low-pass filter for this scale
+            pyramidFiltersComputeShader.SetTexture(generateLowPassFilterKernel, "_LowPassFilter", textures["pyramidLowPassFilter"]);
+            DispatchCompute(pyramidFiltersComputeShader, generateLowPassFilterKernel, width, height);
+            
+            // Generate band-pass filters (oriented)
+            pyramidFiltersComputeShader.SetTexture(generateBandPassFilterKernel, "_BandPassFilter", pyramidFilters[i]);
+            DispatchCompute(pyramidFiltersComputeShader, generateBandPassFilterKernel, width, height);
+        }
     }
     
     private void CreateTexture(string name, int width, int height, RenderTextureFormat format)
@@ -263,21 +422,21 @@ public class MotionMagnificationProcessor : MonoBehaviour
     {
         fftComputeShader.SetInt("N", width);
         fftComputeShader.SetBuffer(computeBitRevIndicesKernel, "BitRevIndices", bitRevIndicesBuffer);
-        DispatchCompute(computeBitRevIndicesKernel, width, 1);
+        DispatchCompute(fftComputeShader, computeBitRevIndicesKernel, width, 1);
 
         fftComputeShader.SetBuffer(computeTwiddleFactorsKernel, "TwiddleFactors", twiddleFactorsBuffer);
-        DispatchCompute(computeTwiddleFactorsKernel, width / 2, 1);
+        DispatchCompute(fftComputeShader, computeTwiddleFactorsKernel, width / 2, 1);
     }
     
-    private void DispatchCompute(int kernelIndex, int width, int height)
+    private void DispatchCompute(ComputeShader shader, int kernelIndex, int width, int height)
     {
         uint x, y, z;
-        fftComputeShader.GetKernelThreadGroupSizes(kernelIndex, out x, out y, out z);
+        shader.GetKernelThreadGroupSizes(kernelIndex, out x, out y, out z);
         
         int groupsX = Mathf.CeilToInt(width / (float)x);
         int groupsY = Mathf.CeilToInt(height / (float)y);
         
-        fftComputeShader.Dispatch(kernelIndex, groupsX, groupsY, 1);
+        shader.Dispatch(kernelIndex, groupsX, groupsY, 1);
     }
 
     private void PadTexture(RenderTexture source, RenderTexture destination)
@@ -420,7 +579,7 @@ public class MotionMagnificationProcessor : MonoBehaviour
         fftComputeShader.SetInt("HEIGHT", height);
         fftComputeShader.SetBuffer(convertComplexMagToTexKernel, "Src", complexBuffer);
         fftComputeShader.SetTexture(convertComplexMagToTexKernel, "DstTex", outputTexture);
-        DispatchCompute(convertComplexMagToTexKernel, width, height);
+        DispatchCompute(fftComputeShader, convertComplexMagToTexKernel, width, height);
     }
 
     private void OnRenderImage(RenderTexture source, RenderTexture destination)
@@ -444,39 +603,27 @@ public class MotionMagnificationProcessor : MonoBehaviour
         // Debug modes
         if (showMagnitude || showPhase)
         {
-            Graphics.Blit(textures["sourceTexture"], textures["yiqTexture"], rgbToYiqMaterial);
-            PadTexture(textures["yiqTexture"], textures["paddedTexture"]);
-            ExtractYChannel(textures["paddedTexture"], textures["yChannelTexture"]);
-            
-            PerformFFT(textures["yChannelTexture"], complexBuffer1, complexBuffer2, textures["currentDFTTexture"]);
-            
-            if (showMagnitude && !showPhase)
-            {
-                ConvertComplexToMagnitude(complexBuffer1, textures["magnitudeTexture"]);
-                CropTexture(textures["magnitudeTexture"], destination);
-                Graphics.Blit(textures["sourceTexture"], textures["previousSourceTexture"]);
-                return;
-            }
-            else if (showPhase && !showMagnitude)
-            {
-                ConvertComplexToPhase(complexBuffer1, textures["phaseTexture"]);
-                CropTexture(textures["phaseTexture"], destination);
-                Graphics.Blit(textures["sourceTexture"], textures["previousSourceTexture"]);
-                return;
-            }
-            else if (showMagnitude && showPhase)
-            {
-                ConvertComplexToMagnitude(complexBuffer1, textures["magnitudeTexture"]);
-                ConvertComplexToPhase(complexBuffer1, textures["phaseTexture"]);
-                ShowSplitScreen(textures["magnitudeTexture"], textures["phaseTexture"], destination);
-                Graphics.Blit(textures["sourceTexture"], textures["previousSourceTexture"]);
-                return;
-            }
+            ShowDebugVisualization(source, destination);
+            return;
+        }
+        
+        // Debug pyramid level
+        if (showPyramidLevel && useSteerablePyramid)
+        {
+            ShowPyramidLevel(source, destination);
+            return;
         }
 
         if (applyMotionMagnification)
         {
-            ProcessFrameWithMotionMagnification(source, destination);
+            if (useSteerablePyramid)
+            {
+                ProcessFrameWithSteerablePyramid(source, destination);
+            }
+            else
+            {
+                ProcessFrameWithMotionMagnification(source, destination);
+            }
         }
         else
         {
@@ -485,13 +632,67 @@ public class MotionMagnificationProcessor : MonoBehaviour
         }
     }
     
+    private void ShowDebugVisualization(RenderTexture source, RenderTexture destination)
+    {
+        Graphics.Blit(textures["sourceTexture"], textures["yiqTexture"], rgbToYiqMaterial);
+        PadTexture(textures["yiqTexture"], textures["paddedTexture"]);
+        ExtractYChannel(textures["paddedTexture"], textures["yChannelTexture"]);
+        
+        PerformFFT(textures["yChannelTexture"], complexBuffer1, complexBuffer2, textures["currentDFTTexture"]);
+        
+        if (showMagnitude && !showPhase)
+        {
+            ConvertComplexToMagnitude(complexBuffer1, textures["magnitudeTexture"]);
+            CropTexture(textures["magnitudeTexture"], destination);
+        }
+        else if (showPhase && !showMagnitude)
+        {
+            ConvertComplexToPhase(complexBuffer1, textures["phaseTexture"]);
+            CropTexture(textures["phaseTexture"], destination);
+        }
+        else if (showMagnitude && showPhase)
+        {
+            ConvertComplexToMagnitude(complexBuffer1, textures["magnitudeTexture"]);
+            ConvertComplexToPhase(complexBuffer1, textures["phaseTexture"]);
+            ShowSplitScreen(textures["magnitudeTexture"], textures["phaseTexture"], destination);
+        }
+        
+        Graphics.Blit(textures["sourceTexture"], textures["previousSourceTexture"]);
+    }
+    
+    private void ShowPyramidLevel(RenderTexture source, RenderTexture destination)
+    {
+        if (pyramidLevelToShow >= 0 && pyramidLevelToShow < currentPyramidLevels.Count)
+        {
+            // Process frame to get pyramid decomposition
+            Graphics.Blit(textures["sourceTexture"], textures["yiqTexture"], rgbToYiqMaterial);
+            PadTexture(textures["yiqTexture"], textures["paddedTexture"]);
+            ExtractYChannel(textures["paddedTexture"], textures["yChannelTexture"]);
+            
+            // Perform FFT
+            PerformFFT(textures["yChannelTexture"], complexBuffer1, complexBuffer2, textures["currentDFTTexture"]);
+            
+            // Decompose into pyramid
+            DecomposeIntoPyramid(textures["currentDFTTexture"], currentPyramidLevels);
+            
+            // Show selected level
+            CropTexture(currentPyramidLevels[pyramidLevelToShow], destination);
+        }
+        else
+        {
+            Graphics.Blit(source, destination);
+        }
+        
+        Graphics.Blit(textures["sourceTexture"], textures["previousSourceTexture"]);
+    }
+    
     private void ConvertComplexToMagnitude(ComputeBuffer complexBuffer, RenderTexture magnitudeTexture)
     {
         fftComputeShader.SetInt("WIDTH", width);
         fftComputeShader.SetInt("HEIGHT", height);
         fftComputeShader.SetBuffer(convertComplexMagToTexScaledKernel, "Src", complexBuffer);
         fftComputeShader.SetTexture(convertComplexMagToTexScaledKernel, "DstTex", magnitudeTexture);
-        DispatchCompute(convertComplexMagToTexScaledKernel, width, height);
+        DispatchCompute(fftComputeShader, convertComplexMagToTexScaledKernel, width, height);
     }
     
     private void ConvertComplexToPhase(ComputeBuffer complexBuffer, RenderTexture phaseTexture)
@@ -500,7 +701,7 @@ public class MotionMagnificationProcessor : MonoBehaviour
         fftComputeShader.SetInt("HEIGHT", height);
         fftComputeShader.SetBuffer(convertComplexPhaseToTexKernel, "Src", complexBuffer);
         fftComputeShader.SetTexture(convertComplexPhaseToTexKernel, "DstTex", phaseTexture);
-        DispatchCompute(convertComplexPhaseToTexKernel, width, height);
+        DispatchCompute(fftComputeShader, convertComplexPhaseToTexKernel, width, height);
     }
     
     private void ShowSplitScreen(RenderTexture magnitudeTexture, RenderTexture phaseTexture, RenderTexture destination)
@@ -535,6 +736,174 @@ public class MotionMagnificationProcessor : MonoBehaviour
         RenderTexture.active = null;
     }
     
+    // New method: Process frame with steerable pyramid
+    private void ProcessFrameWithSteerablePyramid(RenderTexture source, RenderTexture destination)
+    {
+        // Convert current frame to YIQ
+        Graphics.Blit(textures["sourceTexture"], textures["yiqTexture"], rgbToYiqMaterial);
+        PadTexture(textures["yiqTexture"], textures["paddedTexture"]);
+        ExtractYChannel(textures["paddedTexture"], textures["yChannelTexture"]);
+        
+        // Convert previous frame to YIQ
+        Graphics.Blit(textures["previousSourceTexture"], textures["previousYiqTexture"], rgbToYiqMaterial);
+        PadTexture(textures["previousYiqTexture"], textures["previousPaddedTexture"]);
+        ExtractYChannel(textures["previousPaddedTexture"], textures["previousYChannelTexture"]);
+        
+        // Transform to frequency domain
+        PerformFFT(textures["yChannelTexture"], complexBuffer1, complexBuffer2, textures["currentDFTTexture"]);
+        PerformFFT(textures["previousYChannelTexture"], previousComplexBuffer1, previousComplexBuffer2, textures["previousDFTTexture"]);
+        
+        // Decompose into steerable pyramid
+        DecomposeIntoPyramid(textures["currentDFTTexture"], currentPyramidLevels);
+        DecomposeIntoPyramid(textures["previousDFTTexture"], previousPyramidLevels);
+        
+        // Extract residuals
+        ExtractResiduals(textures["currentDFTTexture"]);
+        
+        // Process phase differences at each pyramid level
+        ProcessPyramidPhaseDifferences();
+        
+        // Reconstruct from pyramid
+        ReconstructFromPyramid(textures["pyramidReconstructionDFT"]);
+        
+        // Perform IFFT
+        PerformIFFT(textures["pyramidReconstructionDFT"], textures["processedYTexture"]);
+        
+        // Apply anti-aliasing
+        ApplyAntiAliasing(textures["processedYTexture"], textures["processedYTexture"]);
+        
+        // Combine channels
+        CombineYIQChannels(textures["processedYTexture"], textures["paddedTexture"], textures["destinationTexture"]);
+        
+        // Set YIQ adjustment parameters
+        yiqToRgbMaterial.SetFloat("_YMultiplier", yMultiplier);
+        yiqToRgbMaterial.SetFloat("_IMultiplier", iMultiplier);
+        yiqToRgbMaterial.SetFloat("_QMultiplier", qMultiplier);
+        
+        // Convert back to RGB
+        Graphics.Blit(textures["destinationTexture"], textures["finalTexture"], yiqToRgbMaterial);
+        
+        // Crop to original size
+        CropTexture(textures["finalTexture"], destination);
+        
+        // Store current frame for next iteration
+        Graphics.Blit(textures["sourceTexture"], textures["previousSourceTexture"]);
+        
+        // Swap pyramid levels
+        var temp = currentPyramidLevels;
+        currentPyramidLevels = previousPyramidLevels;
+        previousPyramidLevels = temp;
+    }
+    
+    // New method: Decompose image into steerable pyramid
+    private void DecomposeIntoPyramid(RenderTexture dftTexture, List<RenderTexture> pyramidLevels)
+    {
+        if (pyramidDecomposeComputeShader == null) return;
+        
+        pyramidDecomposeComputeShader.SetInt("_Width", width);
+        pyramidDecomposeComputeShader.SetInt("_Height", height);
+        pyramidDecomposeComputeShader.SetInt("_NumOrientations", numOrientations);
+        pyramidDecomposeComputeShader.SetFloat("_Gain", 1.0f / pyramidLevels);
+        
+        // Decompose each level (excluding first and last as per PyTorch reference)
+        for (int level = 0; level < pyramidLevels; level++)
+        {
+            pyramidDecomposeComputeShader.SetInt("_ScaleIndex", level);
+            pyramidDecomposeComputeShader.SetTexture(decomposeLevelKernel, "_InputDFT", dftTexture);
+            pyramidDecomposeComputeShader.SetTexture(decomposeLevelKernel, "_BandPassFilter", pyramidFilters[level]);
+            pyramidDecomposeComputeShader.SetTexture(decomposeLevelKernel, "_PyramidLevel", pyramidLevels[level]);
+            
+            DispatchCompute(pyramidDecomposeComputeShader, decomposeLevelKernel, width, height);
+        }
+    }
+    
+    // New method: Extract low-pass and high-pass residuals
+    private void ExtractResiduals(RenderTexture dftTexture)
+    {
+        if (pyramidDecomposeComputeShader == null) return;
+        
+        pyramidDecomposeComputeShader.SetInt("_Width", width);
+        pyramidDecomposeComputeShader.SetInt("_Height", height);
+        
+        // Extract low-pass residual
+        pyramidDecomposeComputeShader.SetTexture(extractResidualLowPassKernel, "_InputDFT", dftTexture);
+        pyramidDecomposeComputeShader.SetTexture(extractResidualLowPassKernel, "_LowPassFilter", textures["pyramidLowPassFilter"]);
+        pyramidDecomposeComputeShader.SetTexture(extractResidualLowPassKernel, "_OutputDFT", textures["lowPassResidualDFT"]);
+        DispatchCompute(pyramidDecomposeComputeShader, extractResidualLowPassKernel, width, height);
+        
+        // Extract high-pass residual
+        pyramidDecomposeComputeShader.SetTexture(extractResidualHighPassKernel, "_InputDFT", dftTexture);
+        pyramidDecomposeComputeShader.SetTexture(extractResidualHighPassKernel, "_HighPassFilter", textures["pyramidHighPassFilter"]);
+        pyramidDecomposeComputeShader.SetTexture(extractResidualHighPassKernel, "_OutputDFT", textures["highPassResidualDFT"]);
+        DispatchCompute(pyramidDecomposeComputeShader, extractResidualHighPassKernel, width, height);
+    }
+    
+    // New method: Process phase differences for each pyramid level
+    private void ProcessPyramidPhaseDifferences()
+    {
+        if (pyramidReconstructComputeShader == null) return;
+        
+        pyramidReconstructComputeShader.SetInt("_Width", width);
+        pyramidReconstructComputeShader.SetInt("_Height", height);
+        pyramidReconstructComputeShader.SetInt("_NumOrientations", numOrientations);
+        pyramidReconstructComputeShader.SetFloat("_PhaseScale", phaseScale);
+        pyramidReconstructComputeShader.SetFloat("_MagnitudeThreshold", magnitudeThreshold);
+        
+        // Process each pyramid level (excluding first and last as per reference)
+        for (int level = 1; level < pyramidLevels - 1; level++)
+        {
+            pyramidReconstructComputeShader.SetInt("_ScaleIndex", level);
+            pyramidReconstructComputeShader.SetTexture(processPhaseDifferencePerLevelKernel, "_CurrentPyramidLevel", currentPyramidLevels[level]);
+            pyramidReconstructComputeShader.SetTexture(processPhaseDifferencePerLevelKernel, "_PreviousPyramidLevel", previousPyramidLevels[level]);
+            pyramidReconstructComputeShader.SetTexture(processPhaseDifferencePerLevelKernel, "_BandPassFilter", pyramidFilters[level]);
+            pyramidReconstructComputeShader.SetTexture(processPhaseDifferencePerLevelKernel, "_ProcessedPyramidLevel", processedPyramidLevels[level]);
+            
+            DispatchCompute(pyramidReconstructComputeShader, processPhaseDifferencePerLevelKernel, width, height);
+        }
+        
+        // Copy unprocessed levels
+        Graphics.Blit(currentPyramidLevels[0], processedPyramidLevels[0]);
+        if (pyramidLevels > 1)
+        {
+            Graphics.Blit(currentPyramidLevels[pyramidLevels - 1], processedPyramidLevels[pyramidLevels - 1]);
+        }
+    }
+    
+    // New method: Reconstruct from pyramid
+    private void ReconstructFromPyramid(RenderTexture outputDFT)
+    {
+        if (pyramidReconstructComputeShader == null) return;
+        
+        pyramidReconstructComputeShader.SetInt("_Width", width);
+        pyramidReconstructComputeShader.SetInt("_Height", height);
+        pyramidReconstructComputeShader.SetInt("_NumOrientations", numOrientations);
+        pyramidReconstructComputeShader.SetInt("_AddHighPass", includeHighPassInReconstruction ? 1 : 0);
+        
+        // Initialize reconstruction buffer
+        pyramidReconstructComputeShader.SetTexture(initializeReconstructionKernel, "_ReconstructionDFT", outputDFT);
+        DispatchCompute(pyramidReconstructComputeShader, initializeReconstructionKernel, width, height);
+        
+        // Accumulate pyramid levels
+        for (int level = 0; level < pyramidLevels; level++)
+        {
+            pyramidReconstructComputeShader.SetInt("_ScaleIndex", level);
+            pyramidReconstructComputeShader.SetTexture(accumulatePyramidLevelKernel, "_ProcessedPyramidLevel", processedPyramidLevels[level]);
+            pyramidReconstructComputeShader.SetTexture(accumulatePyramidLevelKernel, "_BandPassFilter", pyramidFilters[level]);
+            pyramidReconstructComputeShader.SetTexture(accumulatePyramidLevelKernel, "_ReconstructionDFT", outputDFT);
+            
+            DispatchCompute(pyramidReconstructComputeShader, accumulatePyramidLevelKernel, width, height);
+        }
+        
+        // Add residuals
+        pyramidReconstructComputeShader.SetTexture(addResidualsKernel, "_LowPassResidualDFT", textures["lowPassResidualDFT"]);
+        pyramidReconstructComputeShader.SetTexture(addResidualsKernel, "_HighPassResidualDFT", textures["highPassResidualDFT"]);
+        pyramidReconstructComputeShader.SetTexture(addResidualsKernel, "_LowPassFilter", textures["pyramidLowPassFilter"]);
+        pyramidReconstructComputeShader.SetTexture(addResidualsKernel, "_HighPassFilter", textures["pyramidHighPassFilter"]);
+        pyramidReconstructComputeShader.SetTexture(addResidualsKernel, "_ReconstructionDFT", outputDFT);
+        
+        DispatchCompute(pyramidReconstructComputeShader, addResidualsKernel, width, height);
+    }
+    
     // Updated method - now passes bandpass filter parameters to phase difference shader
     private void ProcessPhaseDifferenceWithComputeShader(RenderTexture currentDFT, RenderTexture previousDFT, RenderTexture outputDFT)
     {
@@ -560,7 +929,7 @@ public class MotionMagnificationProcessor : MonoBehaviour
         phaseDifferenceComputeShader.SetInt("_Height", height);
         
         // Bandpass filter parameters - now applied to phase delta
-        phaseDifferenceComputeShader.SetBool("_ApplyBandpassFilter", applyBandpassFilter);
+        phaseDifferenceComputeShader.SetInt("_ApplyBandpassFilter", applyBandpassFilter ? 1 : 0);
         phaseDifferenceComputeShader.SetFloat("_LowFreqCutoff", lowFrequencyCutoff);
         phaseDifferenceComputeShader.SetFloat("_HighFreqCutoff", highFrequencyCutoff);
         phaseDifferenceComputeShader.SetFloat("_FilterSteepness", filterSteepness);
@@ -627,16 +996,16 @@ public class MotionMagnificationProcessor : MonoBehaviour
 
         fftComputeShader.SetTexture(convertTexToComplexKernel, "SrcTex", yTexture);
         fftComputeShader.SetBuffer(convertTexToComplexKernel, "Dst", outputBuffer1);
-        DispatchCompute(convertTexToComplexKernel, width, height);
+        DispatchCompute(fftComputeShader, convertTexToComplexKernel, width, height);
 
         fftComputeShader.SetBuffer(centerComplexKernel, "Src", outputBuffer1);
         fftComputeShader.SetBuffer(centerComplexKernel, "Dst", outputBuffer2);
-        DispatchCompute(centerComplexKernel, width, height);
+        DispatchCompute(fftComputeShader, centerComplexKernel, width, height);
 
         fftComputeShader.SetBuffer(bitRevByRowKernel, "Src", outputBuffer2);
         fftComputeShader.SetBuffer(bitRevByRowKernel, "Dst", outputBuffer1);
         fftComputeShader.SetBuffer(bitRevByRowKernel, "BitRevIndices", bitRevIndicesBuffer);
-        DispatchCompute(bitRevByRowKernel, width, height);
+        DispatchCompute(fftComputeShader, bitRevByRowKernel, width, height);
 
         ComputeBuffer src = outputBuffer1;
         ComputeBuffer dst = outputBuffer2;
@@ -647,7 +1016,7 @@ public class MotionMagnificationProcessor : MonoBehaviour
             fftComputeShader.SetBuffer(butterflyByRowKernel, "Src", src);
             fftComputeShader.SetBuffer(butterflyByRowKernel, "Dst", dst);
             fftComputeShader.SetBuffer(butterflyByRowKernel, "TwiddleFactors", twiddleFactorsBuffer);
-            DispatchCompute(butterflyByRowKernel, width, height);
+            DispatchCompute(fftComputeShader, butterflyByRowKernel, width, height);
             
             ComputeBuffer temp = src;
             src = dst;
@@ -656,15 +1025,15 @@ public class MotionMagnificationProcessor : MonoBehaviour
 
         fftComputeShader.SetInt("N", height);
         fftComputeShader.SetBuffer(computeBitRevIndicesKernel, "BitRevIndices", bitRevIndicesBuffer);
-        DispatchCompute(computeBitRevIndicesKernel, height, 1);
+        DispatchCompute(fftComputeShader, computeBitRevIndicesKernel, height, 1);
 
         fftComputeShader.SetBuffer(computeTwiddleFactorsKernel, "TwiddleFactors", twiddleFactorsBuffer);
-        DispatchCompute(computeTwiddleFactorsKernel, height / 2, 1);
+        DispatchCompute(fftComputeShader, computeTwiddleFactorsKernel, height / 2, 1);
 
         fftComputeShader.SetBuffer(bitRevByColKernel, "Src", src);
         fftComputeShader.SetBuffer(bitRevByColKernel, "Dst", dst);
         fftComputeShader.SetBuffer(bitRevByColKernel, "BitRevIndices", bitRevIndicesBuffer);
-        DispatchCompute(bitRevByColKernel, width, height);
+        DispatchCompute(fftComputeShader, bitRevByColKernel, width, height);
 
         ComputeBuffer temp2 = src;
         src = dst;
@@ -676,7 +1045,7 @@ public class MotionMagnificationProcessor : MonoBehaviour
             fftComputeShader.SetBuffer(butterflyByColKernel, "Src", src);
             fftComputeShader.SetBuffer(butterflyByColKernel, "Dst", dst);
             fftComputeShader.SetBuffer(butterflyByColKernel, "TwiddleFactors", twiddleFactorsBuffer);
-            DispatchCompute(butterflyByColKernel, width, height);
+            DispatchCompute(fftComputeShader, butterflyByColKernel, width, height);
             
             ComputeBuffer temp = src;
             src = dst;
@@ -685,7 +1054,7 @@ public class MotionMagnificationProcessor : MonoBehaviour
 
         fftComputeShader.SetBuffer(convertComplexToTexRGKernel, "Src", src);
         fftComputeShader.SetTexture(convertComplexToTexRGKernel, "DstTex", outputTexture);
-        DispatchCompute(convertComplexToTexRGKernel, width, height);
+        DispatchCompute(fftComputeShader, convertComplexToTexRGKernel, width, height);
     }
     
     private void ConvertTextureToBuffer(RenderTexture dftTexture, ComputeBuffer outputBuffer)
@@ -694,7 +1063,7 @@ public class MotionMagnificationProcessor : MonoBehaviour
         fftComputeShader.SetInt("HEIGHT", height);
         fftComputeShader.SetTexture(convertTextureToComplexKernel, "SrcTex", dftTexture);
         fftComputeShader.SetBuffer(convertTextureToComplexKernel, "Dst", outputBuffer);
-        DispatchCompute(convertTextureToComplexKernel, width, height);
+        DispatchCompute(fftComputeShader, convertTextureToComplexKernel, width, height);
     }
     
     private void PerformIFFT(RenderTexture dftTexture, RenderTexture outputTexture)
@@ -705,13 +1074,13 @@ public class MotionMagnificationProcessor : MonoBehaviour
         fftComputeShader.SetInt("HEIGHT", height);
         fftComputeShader.SetBuffer(conjugateComplexKernel, "Src", complexBuffer1);
         fftComputeShader.SetBuffer(conjugateComplexKernel, "Dst", complexBuffer2);
-        DispatchCompute(conjugateComplexKernel, width, height);
+        DispatchCompute(fftComputeShader, conjugateComplexKernel, width, height);
         
         fftComputeShader.SetInt("N", width);
         fftComputeShader.SetBuffer(bitRevByRowKernel, "Src", complexBuffer2);
         fftComputeShader.SetBuffer(bitRevByRowKernel, "Dst", complexBuffer1);
         fftComputeShader.SetBuffer(bitRevByRowKernel, "BitRevIndices", bitRevIndicesBuffer);
-        DispatchCompute(bitRevByRowKernel, width, height);
+        DispatchCompute(fftComputeShader, bitRevByRowKernel, width, height);
 
         ComputeBuffer src = complexBuffer1;
         ComputeBuffer dst = complexBuffer2;
@@ -722,7 +1091,7 @@ public class MotionMagnificationProcessor : MonoBehaviour
             fftComputeShader.SetBuffer(butterflyByRowKernel, "Src", src);
             fftComputeShader.SetBuffer(butterflyByRowKernel, "Dst", dst);
             fftComputeShader.SetBuffer(butterflyByRowKernel, "TwiddleFactors", twiddleFactorsBuffer);
-            DispatchCompute(butterflyByRowKernel, width, height);
+            DispatchCompute(fftComputeShader, butterflyByRowKernel, width, height);
             
             ComputeBuffer temp = src;
             src = dst;
@@ -733,7 +1102,7 @@ public class MotionMagnificationProcessor : MonoBehaviour
         fftComputeShader.SetBuffer(bitRevByColKernel, "Src", src);
         fftComputeShader.SetBuffer(bitRevByColKernel, "Dst", dst);
         fftComputeShader.SetBuffer(bitRevByColKernel, "BitRevIndices", bitRevIndicesBuffer);
-        DispatchCompute(bitRevByColKernel, width, height);
+        DispatchCompute(fftComputeShader, bitRevByColKernel, width, height);
 
         ComputeBuffer temp2 = src;
         src = dst;
@@ -745,7 +1114,7 @@ public class MotionMagnificationProcessor : MonoBehaviour
             fftComputeShader.SetBuffer(butterflyByColKernel, "Src", src);
             fftComputeShader.SetBuffer(butterflyByColKernel, "Dst", dst);
             fftComputeShader.SetBuffer(butterflyByColKernel, "TwiddleFactors", twiddleFactorsBuffer);
-            DispatchCompute(butterflyByColKernel, width, height);
+            DispatchCompute(fftComputeShader, butterflyByColKernel, width, height);
             
             ComputeBuffer temp = src;
             src = dst;
@@ -754,7 +1123,7 @@ public class MotionMagnificationProcessor : MonoBehaviour
 
         fftComputeShader.SetBuffer(conjugateComplexKernel, "Src", src);
         fftComputeShader.SetBuffer(conjugateComplexKernel, "Dst", dst);
-        DispatchCompute(conjugateComplexKernel, width, height);
+        DispatchCompute(fftComputeShader, conjugateComplexKernel, width, height);
 
         ComputeBuffer temp3 = src;
         src = dst;
@@ -762,7 +1131,7 @@ public class MotionMagnificationProcessor : MonoBehaviour
 
         fftComputeShader.SetBuffer(divideComplexByDimensionsKernel, "Src", src);
         fftComputeShader.SetBuffer(divideComplexByDimensionsKernel, "Dst", dst);
-        DispatchCompute(divideComplexByDimensionsKernel, width, height);
+        DispatchCompute(fftComputeShader, divideComplexByDimensionsKernel, width, height);
 
         ComputeBuffer temp4 = src;
         src = dst;
@@ -770,10 +1139,10 @@ public class MotionMagnificationProcessor : MonoBehaviour
 
         fftComputeShader.SetBuffer(centerComplexKernel, "Src", src);
         fftComputeShader.SetBuffer(centerComplexKernel, "Dst", dst);
-        DispatchCompute(centerComplexKernel, width, height);
+        DispatchCompute(fftComputeShader, centerComplexKernel, width, height);
 
         fftComputeShader.SetBuffer(convertComplexMagToTexKernel, "Src", dst);
         fftComputeShader.SetTexture(convertComplexMagToTexKernel, "DstTex", outputTexture);
-        DispatchCompute(convertComplexMagToTexKernel, width, height);
+        DispatchCompute(fftComputeShader, convertComplexMagToTexKernel, width, height);
     }
 }
