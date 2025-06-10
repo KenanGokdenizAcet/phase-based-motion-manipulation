@@ -15,7 +15,6 @@ This project implements phase-based motion manipulation techniques in Unity usin
 
 - Unity 2022.3 LTS or newer
 - Built-in Render Pipeline
-- Graphics card that supports compute shaders
 
 ## Usage
 
