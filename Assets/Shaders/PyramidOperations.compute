@@ -1,0 +1,138 @@
+#pragma kernel GeneratePyramidFilters
+#pragma kernel ApplyPyramidFilter
+#pragma kernel AccumulatePyramidLevel
+#pragma kernel InitializeAccumulator
+
+#define GROUP_SIZE_X 32
+#define GROUP_SIZE_Y 32
+#define PI 3.14159265359
+
+// Filter generation parameters
+int _FilterIndex;
+int _NumFilters;
+int _Width;
+int _Height;
+float _MinFreq;
+float _MaxFreq;
+
+// Input/Output textures
+Texture2D<float4> _InputDFT;
+RWTexture2D<float4> _OutputDFT;
+RWTexture2D<float> _FilterTexture;
+RWTexture2D<float4> _AccumulatorTexture;
+
+// Generate frequency domain pyramid filters
+[numthreads(GROUP_SIZE_X, GROUP_SIZE_Y, 1)]
+void GeneratePyramidFilters(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= (uint)_Width || id.y >= (uint)_Height)
+        return;
+    
+    // Calculate normalized frequency coordinates (-0.5 to 0.5)
+    float fx = ((float)id.x / (float)_Width) - 0.5;
+    float fy = ((float)id.y / (float)_Height) - 0.5;
+    
+    // Calculate radial frequency
+    float freq = sqrt(fx * fx + fy * fy);
+    
+    float filterValue = 0.0;
+    
+    if (_FilterIndex == 0)
+    {
+        // High-pass filter (for highest frequencies)
+        if (freq > _MaxFreq)
+        {
+            filterValue = 1.0;
+        }
+        else if (freq > _MaxFreq * 0.8)
+        {
+            // Smooth transition
+            float t = (freq - _MaxFreq * 0.8) / (_MaxFreq * 0.2);
+            filterValue = smoothstep(0.0, 1.0, t);
+        }
+    }
+    else if (_FilterIndex == _NumFilters - 1)
+    {
+        // Low-pass filter (for lowest frequencies)
+        if (freq < _MinFreq)
+        {
+            filterValue = 1.0;
+        }
+        else if (freq < _MinFreq * 1.2)
+        {
+            // Smooth transition
+            float t = (freq - _MinFreq) / (_MinFreq * 0.2);
+            filterValue = 1.0 - smoothstep(0.0, 1.0, t);
+        }
+    }
+    else
+    {
+        // Band-pass filters for intermediate levels
+        float levelRatio = (float)(_FilterIndex - 1) / (float)(_NumFilters - 3);
+        float centerFreq = _MinFreq * pow(_MaxFreq / _MinFreq, 1.0 - levelRatio);
+        float bandwidth = centerFreq * 0.5; // Adjust bandwidth as needed
+        
+        float lowerBound = centerFreq - bandwidth;
+        float upperBound = centerFreq + bandwidth;
+        
+        if (freq >= lowerBound && freq <= upperBound)
+        {
+            // Cosine window for smooth transitions
+            float normalized = (freq - lowerBound) / (upperBound - lowerBound);
+            filterValue = 0.5 * (1.0 + cos(2.0 * PI * (normalized - 0.5)));
+        }
+    }
+    
+    _FilterTexture[id.xy] = filterValue;
+}
+
+// Apply pyramid filter to DFT data
+[numthreads(GROUP_SIZE_X, GROUP_SIZE_Y, 1)]
+void ApplyPyramidFilter(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= (uint)_Width || id.y >= (uint)_Height)
+        return;
+    
+    // Read input DFT (complex values in RG channels)
+    float4 inputDFT = _InputDFT[id.xy];
+    float2 complexValue = inputDFT.rg;
+    
+    // Read filter value
+    float filterValue = _FilterTexture[id.xy];
+    
+    // Apply filter by multiplication in frequency domain
+    float2 filteredComplex = complexValue * filterValue;
+    
+    // Write filtered result
+    _OutputDFT[id.xy] = float4(filteredComplex.x, filteredComplex.y, 0, 1);
+}
+
+// Accumulate pyramid level for reconstruction
+[numthreads(GROUP_SIZE_X, GROUP_SIZE_Y, 1)]
+void AccumulatePyramidLevel(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= (uint)_Width || id.y >= (uint)_Height)
+        return;
+    
+    // Read current accumulator value
+    float4 accumulated = _AccumulatorTexture[id.xy];
+    
+    // Read pyramid level to add
+    float4 levelData = _InputDFT[id.xy];
+    
+    // Accumulate (complex addition)
+    accumulated.rg += levelData.rg;
+    
+    // Write back
+    _AccumulatorTexture[id.xy] = accumulated;
+}
+
+// Initialize accumulator to zero
+[numthreads(GROUP_SIZE_X, GROUP_SIZE_Y, 1)]
+void InitializeAccumulator(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= (uint)_Width || id.y >= (uint)_Height)
+        return;
+    
+    _AccumulatorTexture[id.xy] = float4(0, 0, 0, 1);
+}

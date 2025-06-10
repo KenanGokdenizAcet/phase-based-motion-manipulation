@@ -4,587 +4,103 @@ using System.Collections.Generic;
 [RequireComponent(typeof(Camera))]
 public class MotionMagnificationProcessor : MonoBehaviour
 {
-    [Header("Compute Shaders")]
     [SerializeField] private ComputeShader fftComputeShader;
     [SerializeField] private ComputeShader phaseDifferenceComputeShader;
-    [SerializeField] private ComputeShader pyramidFiltersComputeShader;
-    [SerializeField] private ComputeShader pyramidDecomposeComputeShader;
-    [SerializeField] private ComputeShader pyramidReconstructComputeShader;
-    
-    [Header("Processing Mode")]
-    [SerializeField] private bool useSteerablePyramid = false;
+    [SerializeField] private ComputeShader pyramidOperationsShader;
+    [SerializeField] private ComputeShader pyramidPhaseShader;
+
     [SerializeField] private bool applyMotionMagnification = true;
     [SerializeField] private bool showMagnitude = false;
     [SerializeField] private bool showPhase = false;
-    [SerializeField] private bool showPyramidLevel = false;
-    [SerializeField] private int pyramidLevelToShow = 0;
-    [SerializeField] private bool applyScaling = true;
     
-    [Header("Steerable Pyramid Parameters")]
-    [SerializeField] [Range(1, 6)] private int pyramidLevels = 4;
-    [SerializeField] [Range(1, 4)] private int numOrientations = 4;
-    [SerializeField] [Range(0.1f, 2.0f)] private float pyramidSigma = 0.67f;
-    [SerializeField] private bool includeHighPassInReconstruction = false;
-    
+    // Pyramid parameters
+    [Header("Pyramid Decomposition Settings")]
+    [SerializeField] private bool usePyramidDecomposition = true;
+    [SerializeField] private int pyramidLevels = 5;
+    [SerializeField] [Range(0.05f, 0.45f)] private float minFrequency = 0.05f;
+    [SerializeField] [Range(0.1f, 0.5f)] private float maxFrequency = 0.45f;
+
     // YIQ adjustment parameters
     private float yMultiplier = 1.0f;
     private float iMultiplier = 1.0f;
     private float qMultiplier = 1.0f;
-    
+
     // Phase difference parameters
-    [SerializeField] private float phaseScale = 10.0f;
+    [SerializeField] private float phaseScale = 10.0f; // Magnification factor !!!!!!!!
     private float magnitudeThreshold = 0.01f;
     private float magnitudeScale = 1.0f;
 
-    // Enhanced Bandpass Filter Parameters - now applied to phase delta
+    // Enhanced Bandpass Filter Parameters (for non-pyramid mode)
     [Header("Phase Delta Bandpass Filter Settings")]
     [SerializeField] private bool applyBandpassFilter = true;
     [SerializeField] [Range(0.0f, 1.0f)] private float lowFrequencyCutoff = 0.05f;
     [SerializeField] [Range(0.0f, 1.0f)] private float highFrequencyCutoff = 0.4f;
     [SerializeField] [Range(0.5f, 10.0f)] private float filterSteepness = 3.0f;
-    
+
     [Header("Motion Detection Enhancement")]
     [SerializeField] [Range(0.5f, 3.0f)] private float motionSensitivity = 1.5f;
     [SerializeField] private bool enhanceEdges = true;
     [SerializeField] [Range(0.0f, 2.0f)] private float edgeEnhancement = 0.8f;
-    
+
     // Thread Group Size - must match compute shader
     private const int GROUP_SIZE_X = 32;
     private const int GROUP_SIZE_Y = 32;
-    
+
     private int originalWidth;
     private int originalHeight;
     private int width;
     private int height;
-    
-    // Textures for processing
+
     private Dictionary<string, RenderTexture> textures = new Dictionary<string, RenderTexture>();
-    
-    // Pyramid-specific textures
+    private List<RenderTexture> pyramidFilters = new List<RenderTexture>();
     private List<RenderTexture> currentPyramidLevels = new List<RenderTexture>();
     private List<RenderTexture> previousPyramidLevels = new List<RenderTexture>();
     private List<RenderTexture> processedPyramidLevels = new List<RenderTexture>();
-    private List<RenderTexture> pyramidFilters = new List<RenderTexture>();
+
+    private ComputeBuffer complexBuffer1, complexBuffer2, previousComplexBuffer1, previousComplexBuffer2;
+    private ComputeBuffer bitRevIndicesBuffer, twiddleFactorsBuffer;
     
-    // Compute buffers
-    private ComputeBuffer complexBuffer1;
-    private ComputeBuffer complexBuffer2;
-    private ComputeBuffer previousComplexBuffer1;
-    private ComputeBuffer previousComplexBuffer2;
-    private ComputeBuffer bitRevIndicesBuffer;
-    private ComputeBuffer twiddleFactorsBuffer;
-    
-    // Materials
-    private Material rgbToYiqMaterial;
-    private Material yiqToRgbMaterial;
-    private Material padMaterial;
-    private Material cropMaterial;
-    private Material windowingMaterial;
-    private Material blurMaterial;
-    private Material extractYMaterial;
-    private Material combineChannelsMaterial;
-    
-    // Kernel IDs for existing shaders
-    private int computeBitRevIndicesKernel;
-    private int computeTwiddleFactorsKernel;
-    private int convertTexToComplexKernel;
-    private int convertTextureToComplexKernel;
-    private int convertComplexToTexRGKernel;
-    private int convertComplexMagToTexKernel;
-    private int convertComplexMagToTexScaledKernel;
-    private int convertComplexPhaseToTexKernel;
-    private int centerComplexKernel;
-    private int conjugateComplexKernel;
-    private int divideComplexByDimensionsKernel;
-    private int bitRevByRowKernel;
-    private int bitRevByColKernel;
-    private int butterflyByRowKernel;
-    private int butterflyByColKernel;
-    private int processPhaseDifferenceKernel;
-    
-    // Kernel IDs for pyramid shaders
-    private int generateLowPassFilterKernel;
-    private int generateHighPassFilterKernel;
-    private int generateBandPassFilterKernel;
-    private int decomposeLevelKernel;
-    private int extractResidualLowPassKernel;
-    private int extractResidualHighPassKernel;
-    private int initializeReconstructionKernel;
-    private int processPhaseDifferencePerLevelKernel;
-    private int accumulatePyramidLevelKernel;
-    private int addResidualsKernel;
-    
+    private Material rgbToYiqMaterial, yiqToRgbMaterial, padMaterial, cropMaterial;
+    private Material windowingMaterial, blurMaterial, extractYMaterial, combineChannelsMaterial;
+
+    private int computeBitRevIndicesKernel, computeTwiddleFactorsKernel, convertTexToComplexKernel;
+    private int convertTextureToComplexKernel, convertComplexToTexRGKernel, convertComplexMagToTexKernel;
+    private int convertComplexMagToTexScaledKernel, convertComplexPhaseToTexKernel, centerComplexKernel;
+    private int conjugateComplexKernel, divideComplexByDimensionsKernel, bitRevByRowKernel;
+    private int bitRevByColKernel, butterflyByRowKernel, butterflyByColKernel, processPhaseDifferenceKernel;
+
+    private int generatePyramidFiltersKernel, applyPyramidFilterKernel, accumulatePyramidLevelKernel;
+    private int initializeAccumulatorKernel, processPyramidPhaseDifferenceKernel;
+
     private bool isFirstFrame = true;
     private bool isInitialized = false;
+
+    void OnValidate()
+    {
+        if (isInitialized && usePyramidDecomposition)
+        {
+            if (pyramidFilters.Count != pyramidLevels || pyramidFilters.Count == 0)
+            {
+                InitializePyramidTextures();
+            }
+            GeneratePyramidFilters();
+        }
+    }
 
     private void Start()
     {
         InitializeMaterials();
         InitializeProcessor();
     }
-    
-    private void InitializeMaterials()
-    {
-        rgbToYiqMaterial = new Material(Shader.Find("Custom/RGBToYIQ"));
-        yiqToRgbMaterial = new Material(Shader.Find("Custom/YIQToRGB"));
-        padMaterial = new Material(Shader.Find("Hidden/BlitCopy"));
-        cropMaterial = new Material(Shader.Find("Hidden/BlitCopy"));
-        windowingMaterial = CreateMaterial("Hidden/WindowingFunction");
-        blurMaterial = CreateMaterial("Hidden/GaussianBlur");
-        extractYMaterial = CreateMaterial("Hidden/ExtractYChannel") ?? 
-                           CreateMaterial("Hidden/ExtractRedChannel");
-        combineChannelsMaterial = CreateMaterial("Hidden/CombineYIQChannels") ?? 
-                                 new Material(Shader.Find("Unlit/Texture"));
-    }
-    
-    private Material CreateMaterial(string shaderName)
-    {
-        Shader shader = Shader.Find(shaderName);
-        return shader != null ? new Material(shader) : null;
-    }
 
     private void OnDestroy()
     {
         ReleaseResources();
     }
-    
-    private void ReleaseResources()
-    {
-        // Release compute buffers
-        ReleaseBuffer(ref complexBuffer1);
-        ReleaseBuffer(ref complexBuffer2);
-        ReleaseBuffer(ref previousComplexBuffer1);
-        ReleaseBuffer(ref previousComplexBuffer2);
-        ReleaseBuffer(ref bitRevIndicesBuffer);
-        ReleaseBuffer(ref twiddleFactorsBuffer);
-        
-        // Release all textures
-        foreach (var texture in textures.Values)
-        {
-            if (texture != null)
-                texture.Release();
-        }
-        textures.Clear();
-        
-        // Release pyramid textures
-        ReleasePyramidTextures();
-        
-        DestroyMaterial(ref rgbToYiqMaterial);
-        DestroyMaterial(ref yiqToRgbMaterial);
-        DestroyMaterial(ref padMaterial);
-        DestroyMaterial(ref cropMaterial);
-        DestroyMaterial(ref windowingMaterial);
-        DestroyMaterial(ref blurMaterial);
-        DestroyMaterial(ref extractYMaterial);
-        DestroyMaterial(ref combineChannelsMaterial);
-    }
-    
-    private void ReleasePyramidTextures()
-    {
-        foreach (var tex in currentPyramidLevels)
-            if (tex != null) tex.Release();
-        foreach (var tex in previousPyramidLevels)
-            if (tex != null) tex.Release();
-        foreach (var tex in processedPyramidLevels)
-            if (tex != null) tex.Release();
-        foreach (var tex in pyramidFilters)
-            if (tex != null) tex.Release();
-            
-        currentPyramidLevels.Clear();
-        previousPyramidLevels.Clear();
-        processedPyramidLevels.Clear();
-        pyramidFilters.Clear();
-    }
-    
-    private void ReleaseBuffer(ref ComputeBuffer buffer)
-    {
-        if (buffer != null)
-        {
-            buffer.Release();
-            buffer = null;
-        }
-    }
-    
-    private void DestroyMaterial(ref Material material)
-    {
-        if (material != null)
-        {
-            Destroy(material);
-            material = null;
-        }
-    }
-
-    private void InitializeProcessor()
-    {
-        // Get reference to the camera
-        Camera cam = GetComponent<Camera>();
-        if (cam == null)
-        {
-            Debug.LogError("Camera component is required!");
-            return;
-        }
-
-        // Save original dimensions
-        originalWidth = Screen.width;
-        originalHeight = Screen.height;
-
-        // Round to nearest power of 2
-        int maxDimension = Mathf.Max(originalWidth, originalHeight);
-        int paddedSize = Mathf.NextPowerOfTwo(maxDimension);
-        
-        width = paddedSize;
-        height = paddedSize;
-
-        Debug.Log($"Original size: {originalWidth}x{originalHeight}, Padded size: {width}x{height}");
-        
-        // Create textures
-        CreateTexture("sourceTexture", originalWidth, originalHeight, RenderTextureFormat.ARGBFloat);
-        CreateTexture("previousSourceTexture", originalWidth, originalHeight, RenderTextureFormat.ARGBFloat);
-        CreateTexture("paddedTexture", width, height, RenderTextureFormat.ARGBFloat);
-        CreateTexture("previousPaddedTexture", width, height, RenderTextureFormat.ARGBFloat);
-        CreateTexture("destinationTexture", width, height, RenderTextureFormat.ARGBFloat);
-        CreateTexture("finalTexture", originalWidth, originalHeight, RenderTextureFormat.ARGBFloat);
-        
-        // YIQ textures
-        CreateTexture("yiqTexture", width, height, RenderTextureFormat.ARGBFloat);
-        CreateTexture("previousYiqTexture", width, height, RenderTextureFormat.ARGBFloat);
-        CreateTexture("yChannelTexture", width, height, RenderTextureFormat.RFloat);
-        CreateTexture("previousYChannelTexture", width, height, RenderTextureFormat.RFloat);
-        CreateTexture("processedYTexture", width, height, RenderTextureFormat.RFloat);
-        
-        // FFT result textures
-        CreateTexture("currentDFTTexture", width, height, RenderTextureFormat.ARGBFloat);
-        CreateTexture("previousDFTTexture", width, height, RenderTextureFormat.ARGBFloat);
-        CreateTexture("modifiedDFTTexture", width, height, RenderTextureFormat.ARGBFloat);
-        
-        // Pyramid-specific textures
-        CreateTexture("pyramidReconstructionDFT", width, height, RenderTextureFormat.RGFloat);
-        CreateTexture("lowPassResidualDFT", width, height, RenderTextureFormat.RGFloat);
-        CreateTexture("highPassResidualDFT", width, height, RenderTextureFormat.RGFloat);
-        
-        // Debug textures
-        CreateTexture("magnitudeTexture", width, height, RenderTextureFormat.RFloat);
-        CreateTexture("phaseTexture", width, height, RenderTextureFormat.RFloat);
-
-        // Create buffers
-        int complexSize = sizeof(float) * 2;
-        complexBuffer1 = new ComputeBuffer(width * height, complexSize);
-        complexBuffer2 = new ComputeBuffer(width * height, complexSize);
-        previousComplexBuffer1 = new ComputeBuffer(width * height, complexSize);
-        previousComplexBuffer2 = new ComputeBuffer(width * height, complexSize);
-        
-        bitRevIndicesBuffer = new ComputeBuffer(Mathf.Max(width, height), sizeof(int));
-        twiddleFactorsBuffer = new ComputeBuffer(Mathf.Max(width, height) / 2, complexSize);
-
-        // Initialize kernel IDs
-        InitializeKernelIDs();
-        
-        // Initialize pyramid structures if enabled
-        if (useSteerablePyramid)
-        {
-            InitializePyramidStructures();
-        }
-
-        // Precompute FFT data
-        PrecomputeFFTData();
-
-        isInitialized = true;
-    }
-    
-    private void InitializeKernelIDs()
-    {
-        // Get kernel IDs from FFT compute shader
-        computeBitRevIndicesKernel = fftComputeShader.FindKernel("ComputeBitRevIndices");
-        computeTwiddleFactorsKernel = fftComputeShader.FindKernel("ComputeTwiddleFactors");
-        convertTexToComplexKernel = fftComputeShader.FindKernel("ConvertTexToComplex");
-        convertTextureToComplexKernel = fftComputeShader.FindKernel("ConvertTextureToComplex");
-        convertComplexToTexRGKernel = fftComputeShader.FindKernel("ConvertComplexToTexRG");
-        convertComplexMagToTexKernel = fftComputeShader.FindKernel("ConvertComplexMagToTex");
-        convertComplexMagToTexScaledKernel = fftComputeShader.FindKernel("ConvertComplexMagToTexScaled");
-        convertComplexPhaseToTexKernel = fftComputeShader.FindKernel("ConvertComplexPhaseToTex");
-        centerComplexKernel = fftComputeShader.FindKernel("CenterComplex");
-        conjugateComplexKernel = fftComputeShader.FindKernel("ConjugateComplex");
-        divideComplexByDimensionsKernel = fftComputeShader.FindKernel("DivideComplexByDimensions");
-        bitRevByRowKernel = fftComputeShader.FindKernel("BitRevByRow");
-        bitRevByColKernel = fftComputeShader.FindKernel("BitRevByCol");
-        butterflyByRowKernel = fftComputeShader.FindKernel("ButterflyByRow");
-        butterflyByColKernel = fftComputeShader.FindKernel("ButterflyByCol");
-
-        // Get kernel ID from phase difference compute shader
-        if (phaseDifferenceComputeShader != null)
-        {
-            processPhaseDifferenceKernel = phaseDifferenceComputeShader.FindKernel("ProcessPhaseDifference");
-        }
-        
-        // Get kernel IDs from pyramid shaders
-        if (pyramidFiltersComputeShader != null)
-        {
-            generateLowPassFilterKernel = pyramidFiltersComputeShader.FindKernel("GenerateLowPassFilter");
-            generateHighPassFilterKernel = pyramidFiltersComputeShader.FindKernel("GenerateHighPassFilter");
-            generateBandPassFilterKernel = pyramidFiltersComputeShader.FindKernel("GenerateBandPassFilter");
-        }
-        
-        if (pyramidDecomposeComputeShader != null)
-        {
-            decomposeLevelKernel = pyramidDecomposeComputeShader.FindKernel("DecomposeLevel");
-            extractResidualLowPassKernel = pyramidDecomposeComputeShader.FindKernel("ExtractResidualLowPass");
-            extractResidualHighPassKernel = pyramidDecomposeComputeShader.FindKernel("ExtractResidualHighPass");
-        }
-        
-        if (pyramidReconstructComputeShader != null)
-        {
-            initializeReconstructionKernel = pyramidReconstructComputeShader.FindKernel("InitializeReconstruction");
-            processPhaseDifferencePerLevelKernel = pyramidReconstructComputeShader.FindKernel("ProcessPhaseDifferencePerLevel");
-            accumulatePyramidLevelKernel = pyramidReconstructComputeShader.FindKernel("AccumulatePyramidLevel");
-            addResidualsKernel = pyramidReconstructComputeShader.FindKernel("AddResiduals");
-        }
-    }
-    
-    private void InitializePyramidStructures()
-    {
-        // Clear existing pyramid textures
-        ReleasePyramidTextures();
-        
-        // Create pyramid level textures
-        for (int i = 0; i < pyramidLevels; i++)
-        {
-            // Store multiple orientations in RGBA channels
-            RenderTexture currentLevel = new RenderTexture(width, height, 0, RenderTextureFormat.ARGBFloat);
-            currentLevel.enableRandomWrite = true;
-            currentLevel.Create();
-            currentPyramidLevels.Add(currentLevel);
-            
-            RenderTexture previousLevel = new RenderTexture(width, height, 0, RenderTextureFormat.ARGBFloat);
-            previousLevel.enableRandomWrite = true;
-            previousLevel.Create();
-            previousPyramidLevels.Add(previousLevel);
-            
-            RenderTexture processedLevel = new RenderTexture(width, height, 0, RenderTextureFormat.ARGBFloat);
-            processedLevel.enableRandomWrite = true;
-            processedLevel.Create();
-            processedPyramidLevels.Add(processedLevel);
-        }
-        
-        // Create filter textures
-        CreateTexture("pyramidLowPassFilter", width, height, RenderTextureFormat.RFloat);
-        CreateTexture("pyramidHighPassFilter", width, height, RenderTextureFormat.RFloat);
-        
-        for (int i = 0; i < pyramidLevels; i++)
-        {
-            RenderTexture bandPassFilter = new RenderTexture(width, height, 0, RenderTextureFormat.ARGBFloat);
-            bandPassFilter.enableRandomWrite = true;
-            bandPassFilter.Create();
-            pyramidFilters.Add(bandPassFilter);
-        }
-        
-        // Generate pyramid filters
-        GeneratePyramidFilters();
-    }
-    
-    private void GeneratePyramidFilters()
-    {
-        if (pyramidFiltersComputeShader == null) return;
-        
-        // Set common parameters
-        pyramidFiltersComputeShader.SetInt("_Width", width);
-        pyramidFiltersComputeShader.SetInt("_Height", height);
-        pyramidFiltersComputeShader.SetInt("_NumOrientations", numOrientations);
-        pyramidFiltersComputeShader.SetFloat("_Sigma", pyramidSigma);
-        
-        // Generate high-pass filter
-        pyramidFiltersComputeShader.SetTexture(generateHighPassFilterKernel, "_HighPassFilter", textures["pyramidHighPassFilter"]);
-        DispatchCompute(pyramidFiltersComputeShader, generateHighPassFilterKernel, width, height);
-        
-        // Generate filters for each pyramid level
-        for (int i = 0; i < pyramidLevels; i++)
-        {
-            pyramidFiltersComputeShader.SetInt("_ScaleIndex", i);
-            
-            // Generate low-pass filter for this scale
-            pyramidFiltersComputeShader.SetTexture(generateLowPassFilterKernel, "_LowPassFilter", textures["pyramidLowPassFilter"]);
-            DispatchCompute(pyramidFiltersComputeShader, generateLowPassFilterKernel, width, height);
-            
-            // Generate band-pass filters (oriented)
-            pyramidFiltersComputeShader.SetTexture(generateBandPassFilterKernel, "_BandPassFilter", pyramidFilters[i]);
-            DispatchCompute(pyramidFiltersComputeShader, generateBandPassFilterKernel, width, height);
-        }
-    }
-    
-    private void CreateTexture(string name, int width, int height, RenderTextureFormat format)
-    {
-        RenderTexture texture = new RenderTexture(width, height, 0, format);
-        texture.enableRandomWrite = true;
-        texture.Create();
-        textures[name] = texture;
-    }
-    
-    private void PrecomputeFFTData()
-    {
-        fftComputeShader.SetInt("N", width);
-        fftComputeShader.SetBuffer(computeBitRevIndicesKernel, "BitRevIndices", bitRevIndicesBuffer);
-        DispatchCompute(fftComputeShader, computeBitRevIndicesKernel, width, 1);
-
-        fftComputeShader.SetBuffer(computeTwiddleFactorsKernel, "TwiddleFactors", twiddleFactorsBuffer);
-        DispatchCompute(fftComputeShader, computeTwiddleFactorsKernel, width / 2, 1);
-    }
-    
-    private void DispatchCompute(ComputeShader shader, int kernelIndex, int width, int height)
-    {
-        uint x, y, z;
-        shader.GetKernelThreadGroupSizes(kernelIndex, out x, out y, out z);
-        
-        int groupsX = Mathf.CeilToInt(width / (float)x);
-        int groupsY = Mathf.CeilToInt(height / (float)y);
-        
-        shader.Dispatch(kernelIndex, groupsX, groupsY, 1);
-    }
-
-    private void PadTexture(RenderTexture source, RenderTexture destination)
-    {
-        float normalizedWidth = (float)originalWidth / width;
-        float normalizedHeight = (float)originalHeight / height;
-        
-        float offsetX = (1.0f - normalizedWidth) * 0.5f;
-        float offsetY = (1.0f - normalizedHeight) * 0.5f;
-        
-        padMaterial.SetTexture("_MainTex", source);
-        RenderTexture.active = destination;
-        GL.Clear(true, true, Color.black);
-        
-        GL.PushMatrix();
-        GL.LoadOrtho();
-        
-        padMaterial.SetPass(0);
-        GL.Begin(GL.QUADS);
-        GL.TexCoord2(0, 0); GL.Vertex3(offsetX, offsetY, 0);
-        GL.TexCoord2(1, 0); GL.Vertex3(offsetX + normalizedWidth, offsetY, 0);
-        GL.TexCoord2(1, 1); GL.Vertex3(offsetX + normalizedWidth, offsetY + normalizedHeight, 0);
-        GL.TexCoord2(0, 1); GL.Vertex3(offsetX, offsetY + normalizedHeight, 0);
-        GL.End();
-        
-        GL.PopMatrix();
-        RenderTexture.active = null;
-        
-        ApplyWindowingFunction(destination, destination);
-    }
-    
-    private void CropTexture(RenderTexture source, RenderTexture destination)
-    {
-        float normalizedWidth = (float)originalWidth / width;
-        float normalizedHeight = (float)originalHeight / height;
-        
-        float offsetX = (1.0f - normalizedWidth) * 0.5f;
-        float offsetY = (1.0f - normalizedHeight) * 0.5f;
-        
-        cropMaterial.SetTexture("_MainTex", source);
-        RenderTexture.active = destination;
-        GL.Clear(true, true, Color.black);
-        
-        GL.PushMatrix();
-        GL.LoadOrtho();
-        
-        cropMaterial.SetPass(0);
-        GL.Begin(GL.QUADS);
-        GL.TexCoord2(offsetX, offsetY); GL.Vertex3(0, 0, 0);
-        GL.TexCoord2(offsetX + normalizedWidth, offsetY); GL.Vertex3(1, 0, 0);
-        GL.TexCoord2(offsetX + normalizedWidth, offsetY + normalizedHeight); GL.Vertex3(1, 1, 0);
-        GL.TexCoord2(offsetX, offsetY + normalizedHeight); GL.Vertex3(0, 1, 0);
-        GL.End();
-        
-        GL.PopMatrix();
-        RenderTexture.active = null;
-    }
-
-    private void ApplyWindowingFunction(RenderTexture source, RenderTexture destination)
-    {
-        if (windowingMaterial == null)
-        {
-            Graphics.Blit(source, destination);
-            return;
-        }
-        
-        if (source == destination)
-        {
-            RenderTexture tempRT = RenderTexture.GetTemporary(source.width, source.height, 0, source.format);
-            
-            windowingMaterial.SetTexture("_MainTex", source);
-            windowingMaterial.SetFloat("_Width", width);
-            windowingMaterial.SetFloat("_Height", height);
-            
-            Graphics.Blit(source, tempRT, windowingMaterial);
-            Graphics.Blit(tempRT, destination);
-            
-            RenderTexture.ReleaseTemporary(tempRT);
-        }
-        else
-        {
-            windowingMaterial.SetTexture("_MainTex", source);
-            windowingMaterial.SetFloat("_Width", width);
-            windowingMaterial.SetFloat("_Height", height);
-            
-            Graphics.Blit(source, destination, windowingMaterial);
-        }
-    }
-    
-    private void ApplyAntiAliasing(RenderTexture source, RenderTexture destination)
-    {
-        if (blurMaterial == null)
-        {
-            Graphics.Blit(source, destination);
-            return;
-        }
-        
-        blurMaterial.SetFloat("_BlurSize", 0.5f);
-        
-        RenderTexture tempRT = RenderTexture.GetTemporary(source.width, source.height, 0, source.format);
-        
-        blurMaterial.SetVector("_Direction", new Vector4(1.0f, 0.0f, 0.0f, 0.0f));
-        Graphics.Blit(source, tempRT, blurMaterial);
-        
-        blurMaterial.SetVector("_Direction", new Vector4(0.0f, 1.0f, 0.0f, 0.0f));
-        Graphics.Blit(tempRT, destination, blurMaterial);
-        
-        RenderTexture.ReleaseTemporary(tempRT);
-    }
-    
-    private void ExtractYChannel(RenderTexture yiqTexture, RenderTexture yChannelTexture)
-    {
-        if (extractYMaterial == null)
-        {
-            Debug.LogError("No suitable shader found for Y channel extraction!");
-            return;
-        }
-        
-        extractYMaterial.SetTexture("_MainTex", yiqTexture);
-        Graphics.Blit(yiqTexture, yChannelTexture, extractYMaterial);
-    }
-    
-    private void CombineYIQChannels(RenderTexture processedYTexture, RenderTexture originalYIQTexture, RenderTexture outputTexture)
-    {
-        if (combineChannelsMaterial == null)
-        {
-            Debug.LogError("No suitable shader found for YIQ channel combination!");
-            return;
-        }
-        
-        combineChannelsMaterial.SetTexture("_YTex", processedYTexture);
-        combineChannelsMaterial.SetTexture("_IQTex", originalYIQTexture);
-        
-        Graphics.Blit(null, outputTexture, combineChannelsMaterial);
-    }
-    
-    private void ConvertComplexBufferToTexture(ComputeBuffer complexBuffer, RenderTexture outputTexture)
-    {
-        fftComputeShader.SetInt("WIDTH", width);
-        fftComputeShader.SetInt("HEIGHT", height);
-        fftComputeShader.SetBuffer(convertComplexMagToTexKernel, "Src", complexBuffer);
-        fftComputeShader.SetTexture(convertComplexMagToTexKernel, "DstTex", outputTexture);
-        DispatchCompute(fftComputeShader, convertComplexMagToTexKernel, width, height);
-    }
 
     private void OnRenderImage(RenderTexture source, RenderTexture destination)
     {
-        if (!isInitialized || fftComputeShader == null)
+        if (!isInitialized || !AllShadersValid())
         {
             Graphics.Blit(source, destination);
             return;
@@ -600,46 +116,128 @@ public class MotionMagnificationProcessor : MonoBehaviour
             return;
         }
 
-        // Debug modes
         if (showMagnitude || showPhase)
         {
-            ShowDebugVisualization(source, destination);
+            ProcessDebugView(destination);
+            Graphics.Blit(textures["sourceTexture"], textures["previousSourceTexture"]);
             return;
         }
         
-        // Debug pyramid level
-        if (showPyramidLevel && useSteerablePyramid)
-        {
-            ShowPyramidLevel(source, destination);
-            return;
-        }
-
         if (applyMotionMagnification)
         {
-            if (useSteerablePyramid)
+            if (usePyramidDecomposition)
             {
-                ProcessFrameWithSteerablePyramid(source, destination);
+                ProcessFrameWithPyramidDecomposition(destination);
             }
             else
             {
-                ProcessFrameWithMotionMagnification(source, destination);
+                ProcessFrameWithStandardMagnification(destination);
             }
         }
         else
         {
             Graphics.Blit(source, destination);
-            Graphics.Blit(textures["sourceTexture"], textures["previousSourceTexture"]);
         }
+        
+        Graphics.Blit(textures["sourceTexture"], textures["previousSourceTexture"]);
     }
-    
-    private void ShowDebugVisualization(RenderTexture source, RenderTexture destination)
+
+    private void ProcessFrameWithPyramidDecomposition(RenderTexture destination)
     {
         Graphics.Blit(textures["sourceTexture"], textures["yiqTexture"], rgbToYiqMaterial);
         PadTexture(textures["yiqTexture"], textures["paddedTexture"]);
         ExtractYChannel(textures["paddedTexture"], textures["yChannelTexture"]);
-        
+
+        Graphics.Blit(textures["previousSourceTexture"], textures["previousYiqTexture"], rgbToYiqMaterial);
+        PadTexture(textures["previousYiqTexture"], textures["previousPaddedTexture"]);
+        ExtractYChannel(textures["previousPaddedTexture"], textures["previousYChannelTexture"]);
+
         PerformFFT(textures["yChannelTexture"], complexBuffer1, complexBuffer2, textures["currentDFTTexture"]);
+        PerformFFT(textures["previousYChannelTexture"], previousComplexBuffer1, previousComplexBuffer2, textures["previousDFTTexture"]);
+
+        for (int i = 0; i < pyramidLevels; i++)
+        {
+            pyramidOperationsShader.SetTexture(applyPyramidFilterKernel, "_InputDFT", textures["currentDFTTexture"]);
+            pyramidOperationsShader.SetTexture(applyPyramidFilterKernel, "_FilterTexture", pyramidFilters[i]);
+            pyramidOperationsShader.SetTexture(applyPyramidFilterKernel, "_OutputDFT", currentPyramidLevels[i]);
+            DispatchCompute(pyramidOperationsShader, applyPyramidFilterKernel, width, height);
+
+            pyramidOperationsShader.SetTexture(applyPyramidFilterKernel, "_InputDFT", textures["previousDFTTexture"]);
+            pyramidOperationsShader.SetTexture(applyPyramidFilterKernel, "_FilterTexture", pyramidFilters[i]);
+            pyramidOperationsShader.SetTexture(applyPyramidFilterKernel, "_OutputDFT", previousPyramidLevels[i]);
+            DispatchCompute(pyramidOperationsShader, applyPyramidFilterKernel, width, height);
+        }
+
+        for (int i = 0; i < pyramidLevels; i++)
+        {
+            pyramidPhaseShader.SetTexture(processPyramidPhaseDifferenceKernel, "_CurrentPyramidLevel", currentPyramidLevels[i]);
+            pyramidPhaseShader.SetTexture(processPyramidPhaseDifferenceKernel, "_PreviousPyramidLevel", previousPyramidLevels[i]);
+            pyramidPhaseShader.SetTexture(processPyramidPhaseDifferenceKernel, "_OutputPyramidLevel", processedPyramidLevels[i]);
+            pyramidPhaseShader.SetFloat("_PhaseScale", phaseScale);
+            pyramidPhaseShader.SetFloat("_MagnitudeThreshold", magnitudeThreshold);
+            pyramidPhaseShader.SetInt("_Width", width);
+            pyramidPhaseShader.SetInt("_Height", height);
+            pyramidPhaseShader.SetInt("_CurrentLevel", i);
+            pyramidPhaseShader.SetInt("_TotalLevels", pyramidLevels);
+            pyramidPhaseShader.SetInt("_ProcessLevel", 1);
+            DispatchCompute(pyramidPhaseShader, processPyramidPhaseDifferenceKernel, width, height);
+        }
+
+        pyramidOperationsShader.SetTexture(initializeAccumulatorKernel, "_AccumulatorTexture", textures["pyramidAccumulator"]);
+        DispatchCompute(pyramidOperationsShader, initializeAccumulatorKernel, width, height);
+
+        for (int i = 0; i < pyramidLevels; i++)
+        {
+            pyramidOperationsShader.SetTexture(accumulatePyramidLevelKernel, "_InputDFT", processedPyramidLevels[i]);
+            pyramidOperationsShader.SetTexture(accumulatePyramidLevelKernel, "_AccumulatorTexture", textures["pyramidAccumulator"]);
+            DispatchCompute(pyramidOperationsShader, accumulatePyramidLevelKernel, width, height);
+        }
+
+        PerformIFFT(textures["pyramidAccumulator"], textures["processedYTexture"]);
+        ApplyAntiAliasing(textures["processedYTexture"], textures["processedYTexture"]);
+        CombineYIQChannels(textures["processedYTexture"], textures["paddedTexture"], textures["destinationTexture"]);
         
+        yiqToRgbMaterial.SetFloat("_YMultiplier", yMultiplier);
+        yiqToRgbMaterial.SetFloat("_IMultiplier", iMultiplier);
+        yiqToRgbMaterial.SetFloat("_QMultiplier", qMultiplier);
+        
+        Graphics.Blit(textures["destinationTexture"], textures["finalTexture"], yiqToRgbMaterial);
+        CropTexture(textures["finalTexture"], destination);
+    }
+    
+    private void ProcessFrameWithStandardMagnification(RenderTexture destination)
+    {
+        Graphics.Blit(textures["sourceTexture"], textures["yiqTexture"], rgbToYiqMaterial);
+        PadTexture(textures["yiqTexture"], textures["paddedTexture"]);
+        ExtractYChannel(textures["paddedTexture"], textures["yChannelTexture"]);
+
+        Graphics.Blit(textures["previousSourceTexture"], textures["previousYiqTexture"], rgbToYiqMaterial);
+        PadTexture(textures["previousYiqTexture"], textures["previousPaddedTexture"]);
+        ExtractYChannel(textures["previousPaddedTexture"], textures["previousYChannelTexture"]);
+
+        PerformFFT(textures["yChannelTexture"], complexBuffer1, complexBuffer2, textures["currentDFTTexture"]);
+        PerformFFT(textures["previousYChannelTexture"], previousComplexBuffer1, previousComplexBuffer2, textures["previousDFTTexture"]);
+
+        ProcessPhaseDifferenceWithComputeShader(textures["currentDFTTexture"], textures["previousDFTTexture"], textures["modifiedDFTTexture"]);
+        PerformIFFT(textures["modifiedDFTTexture"], textures["processedYTexture"]);
+        ApplyAntiAliasing(textures["processedYTexture"], textures["processedYTexture"]);
+        CombineYIQChannels(textures["processedYTexture"], textures["paddedTexture"], textures["destinationTexture"]);
+
+        yiqToRgbMaterial.SetFloat("_YMultiplier", yMultiplier);
+        yiqToRgbMaterial.SetFloat("_IMultiplier", iMultiplier);
+        yiqToRgbMaterial.SetFloat("_QMultiplier", qMultiplier);
+
+        Graphics.Blit(textures["destinationTexture"], textures["finalTexture"], yiqToRgbMaterial);
+        CropTexture(textures["finalTexture"], destination);
+    }
+    
+    private void ProcessDebugView(RenderTexture destination)
+    {
+        Graphics.Blit(textures["sourceTexture"], textures["yiqTexture"], rgbToYiqMaterial);
+        PadTexture(textures["yiqTexture"], textures["paddedTexture"]);
+        ExtractYChannel(textures["paddedTexture"], textures["yChannelTexture"]);
+        PerformFFT(textures["yChannelTexture"], complexBuffer1, complexBuffer2, textures["currentDFTTexture"]);
+
         if (showMagnitude && !showPhase)
         {
             ConvertComplexToMagnitude(complexBuffer1, textures["magnitudeTexture"]);
@@ -656,493 +254,478 @@ public class MotionMagnificationProcessor : MonoBehaviour
             ConvertComplexToPhase(complexBuffer1, textures["phaseTexture"]);
             ShowSplitScreen(textures["magnitudeTexture"], textures["phaseTexture"], destination);
         }
-        
-        Graphics.Blit(textures["sourceTexture"], textures["previousSourceTexture"]);
     }
     
-    private void ShowPyramidLevel(RenderTexture source, RenderTexture destination)
+    private void InitializeMaterials()
     {
-        if (pyramidLevelToShow >= 0 && pyramidLevelToShow < currentPyramidLevels.Count)
+        rgbToYiqMaterial = CreateMaterial("Custom/RGBToYIQ");
+        yiqToRgbMaterial = CreateMaterial("Custom/YIQToRGB");
+        padMaterial = CreateMaterial("Hidden/BlitCopy"); 
+        cropMaterial = CreateMaterial("Hidden/BlitCopy");
+        windowingMaterial = CreateMaterial("Hidden/WindowingFunction");
+        blurMaterial = CreateMaterial("Hidden/GaussianBlur");
+        extractYMaterial = CreateMaterial("Hidden/ExtractYChannel");
+        combineChannelsMaterial = CreateMaterial("Hidden/CombineYIQChannels");
+    }
+
+    private Material CreateMaterial(string shaderName)
+    {
+        Shader shader = Shader.Find(shaderName);
+        if (shader == null)
         {
-            // Process frame to get pyramid decomposition
-            Graphics.Blit(textures["sourceTexture"], textures["yiqTexture"], rgbToYiqMaterial);
-            PadTexture(textures["yiqTexture"], textures["paddedTexture"]);
-            ExtractYChannel(textures["paddedTexture"], textures["yChannelTexture"]);
-            
-            // Perform FFT
-            PerformFFT(textures["yChannelTexture"], complexBuffer1, complexBuffer2, textures["currentDFTTexture"]);
-            
-            // Decompose into pyramid
-            DecomposeIntoPyramid(textures["currentDFTTexture"], currentPyramidLevels);
-            
-            // Show selected level
-            CropTexture(currentPyramidLevels[pyramidLevelToShow], destination);
+            Debug.LogError($"Shader not found: {shaderName}. Please ensure it exists in the project and is included in a Resources folder or 'Always Included Shaders'.", this);
+            return null;
         }
-        else
+        return new Material(shader);
+    }
+
+    private bool AllShadersValid()
+    {
+        return rgbToYiqMaterial != null && yiqToRgbMaterial != null && padMaterial != null && cropMaterial != null &&
+               windowingMaterial != null && blurMaterial != null && extractYMaterial != null && combineChannelsMaterial != null &&
+               fftComputeShader != null && phaseDifferenceComputeShader != null && pyramidOperationsShader != null && pyramidPhaseShader != null;
+    }
+
+    private void InitializeProcessor()
+    {
+        if (!AllShadersValid())
         {
-            Graphics.Blit(source, destination);
+            Debug.LogError("One or more shaders are missing. Disabling component.");
+            this.enabled = false;
+            return;
         }
         
-        Graphics.Blit(textures["sourceTexture"], textures["previousSourceTexture"]);
+        originalWidth = Screen.width;
+        originalHeight = Screen.height;
+        int maxDimension = Mathf.Max(originalWidth, originalHeight);
+        int paddedSize = Mathf.NextPowerOfTwo(maxDimension);
+        width = height = paddedSize;
+
+        Debug.Log($"Original: {originalWidth}x{originalHeight}, Padded: {width}x{height}");
+        
+        CreateTexture("sourceTexture", originalWidth, originalHeight, RenderTextureFormat.ARGBFloat);
+        CreateTexture("previousSourceTexture", originalWidth, originalHeight, RenderTextureFormat.ARGBFloat);
+        CreateTexture("paddedTexture", width, height, RenderTextureFormat.ARGBFloat);
+        CreateTexture("previousPaddedTexture", width, height, RenderTextureFormat.ARGBFloat);
+        CreateTexture("destinationTexture", width, height, RenderTextureFormat.ARGBFloat);
+        CreateTexture("finalTexture", width, height, RenderTextureFormat.ARGBFloat);
+        CreateTexture("yiqTexture", width, height, RenderTextureFormat.ARGBFloat);
+        CreateTexture("previousYiqTexture", width, height, RenderTextureFormat.ARGBFloat);
+        CreateTexture("yChannelTexture", width, height, RenderTextureFormat.RFloat);
+        CreateTexture("previousYChannelTexture", width, height, RenderTextureFormat.RFloat);
+        CreateTexture("processedYTexture", width, height, RenderTextureFormat.RFloat);
+        CreateTexture("currentDFTTexture", width, height, RenderTextureFormat.ARGBFloat);
+        CreateTexture("previousDFTTexture", width, height, RenderTextureFormat.ARGBFloat);
+        CreateTexture("modifiedDFTTexture", width, height, RenderTextureFormat.ARGBFloat);
+        CreateTexture("pyramidAccumulator", width, height, RenderTextureFormat.ARGBFloat);
+        CreateTexture("magnitudeTexture", width, height, RenderTextureFormat.RFloat);
+        CreateTexture("phaseTexture", width, height, RenderTextureFormat.RFloat);
+
+        InitializePyramidTextures();
+        
+        int complexSize = sizeof(float) * 2;
+        complexBuffer1 = new ComputeBuffer(width * height, complexSize);
+        complexBuffer2 = new ComputeBuffer(width * height, complexSize);
+        previousComplexBuffer1 = new ComputeBuffer(width * height, complexSize);
+        previousComplexBuffer2 = new ComputeBuffer(width * height, complexSize);
+        bitRevIndicesBuffer = new ComputeBuffer(Mathf.Max(width, height), sizeof(int));
+        twiddleFactorsBuffer = new ComputeBuffer(Mathf.Max(width, height) / 2, complexSize);
+
+        InitializeFFTKernels();
+        InitializePyramidKernels();
+        if (phaseDifferenceComputeShader != null) { processPhaseDifferenceKernel = phaseDifferenceComputeShader.FindKernel("ProcessPhaseDifference"); }
+
+        PrecomputeFFTData();
+        if (usePyramidDecomposition) { GeneratePyramidFilters(); }
+
+        isInitialized = true;
+    }
+
+    private void ReleaseResources()
+    {
+        ReleaseBuffer(ref complexBuffer1); ReleaseBuffer(ref complexBuffer2);
+        ReleaseBuffer(ref previousComplexBuffer1); ReleaseBuffer(ref previousComplexBuffer2);
+        ReleaseBuffer(ref bitRevIndicesBuffer); ReleaseBuffer(ref twiddleFactorsBuffer);
+        foreach (var tex in textures.Values) if (tex != null) tex.Release();
+        textures.Clear();
+        ReleasePyramidTextures();
+        DestroyMaterial(ref rgbToYiqMaterial); DestroyMaterial(ref yiqToRgbMaterial);
+        DestroyMaterial(ref padMaterial); DestroyMaterial(ref cropMaterial);
+        DestroyMaterial(ref windowingMaterial); DestroyMaterial(ref blurMaterial);
+        DestroyMaterial(ref extractYMaterial); DestroyMaterial(ref combineChannelsMaterial);
     }
     
-    private void ConvertComplexToMagnitude(ComputeBuffer complexBuffer, RenderTexture magnitudeTexture)
+    private void PadTexture(RenderTexture source, RenderTexture destination)
     {
-        fftComputeShader.SetInt("WIDTH", width);
-        fftComputeShader.SetInt("HEIGHT", height);
-        fftComputeShader.SetBuffer(convertComplexMagToTexScaledKernel, "Src", complexBuffer);
-        fftComputeShader.SetTexture(convertComplexMagToTexScaledKernel, "DstTex", magnitudeTexture);
-        DispatchCompute(fftComputeShader, convertComplexMagToTexScaledKernel, width, height);
-    }
-    
-    private void ConvertComplexToPhase(ComputeBuffer complexBuffer, RenderTexture phaseTexture)
-    {
-        fftComputeShader.SetInt("WIDTH", width);
-        fftComputeShader.SetInt("HEIGHT", height);
-        fftComputeShader.SetBuffer(convertComplexPhaseToTexKernel, "Src", complexBuffer);
-        fftComputeShader.SetTexture(convertComplexPhaseToTexKernel, "DstTex", phaseTexture);
-        DispatchCompute(fftComputeShader, convertComplexPhaseToTexKernel, width, height);
-    }
-    
-    private void ShowSplitScreen(RenderTexture magnitudeTexture, RenderTexture phaseTexture, RenderTexture destination)
-    {
+        float normalizedWidth = (float)originalWidth / width;
+        float normalizedHeight = (float)originalHeight / height;
+        float offsetX = (1.0f - normalizedWidth) * 0.5f;
+        float offsetY = (1.0f - normalizedHeight) * 0.5f;
+        
         RenderTexture.active = destination;
         GL.Clear(true, true, Color.black);
-        
         GL.PushMatrix();
         GL.LoadOrtho();
         
-        // Left half - Magnitude
-        padMaterial.SetTexture("_MainTex", magnitudeTexture);
+        padMaterial.SetTexture("_MainTex", source);
         padMaterial.SetPass(0);
-        GL.Begin(GL.QUADS);
-        GL.TexCoord2(0, 0); GL.Vertex3(0, 0, 0);
-        GL.TexCoord2(1, 0); GL.Vertex3(0.5f, 0, 0);
-        GL.TexCoord2(1, 1); GL.Vertex3(0.5f, 1, 0);
-        GL.TexCoord2(0, 1); GL.Vertex3(0, 1, 0);
-        GL.End();
         
-        // Right half - Phase
-        padMaterial.SetTexture("_MainTex", phaseTexture);
-        padMaterial.SetPass(0);
         GL.Begin(GL.QUADS);
-        GL.TexCoord2(0, 0); GL.Vertex3(0.5f, 0, 0);
-        GL.TexCoord2(1, 0); GL.Vertex3(1, 0, 0);
-        GL.TexCoord2(1, 1); GL.Vertex3(1, 1, 0);
-        GL.TexCoord2(0, 1); GL.Vertex3(0.5f, 1, 0);
+        GL.TexCoord2(0, 0); GL.Vertex3(offsetX, offsetY, 0);
+        GL.TexCoord2(1, 0); GL.Vertex3(offsetX + normalizedWidth, offsetY, 0);
+        GL.TexCoord2(1, 1); GL.Vertex3(offsetX + normalizedWidth, offsetY + normalizedHeight, 0);
+        GL.TexCoord2(0, 1); GL.Vertex3(offsetX, offsetY + normalizedHeight, 0);
+        GL.End();
+
+        GL.PopMatrix();
+        RenderTexture.active = null;
+        
+        ApplyWindowingFunction(destination, destination);
+    }
+
+    private void CropTexture(RenderTexture source, RenderTexture destination)
+    {
+        float normalizedWidth = (float)originalWidth / width;
+        float normalizedHeight = (float)originalHeight / height;
+        float offsetX = (1.0f - normalizedWidth) * 0.5f;
+        float offsetY = (1.0f - normalizedHeight) * 0.5f;
+
+        RenderTexture.active = destination;
+        GL.Clear(true, true, Color.black);
+        GL.PushMatrix();
+        GL.LoadOrtho();
+        
+        cropMaterial.SetTexture("_MainTex", source);
+        cropMaterial.SetPass(0);
+
+        GL.Begin(GL.QUADS);
+        GL.TexCoord2(offsetX, offsetY); GL.Vertex3(0, 0, 0);
+        GL.TexCoord2(offsetX + normalizedWidth, offsetY); GL.Vertex3(1, 0, 0);
+        GL.TexCoord2(offsetX + normalizedWidth, offsetY + normalizedHeight); GL.Vertex3(1, 1, 0);
+        GL.TexCoord2(offsetX, offsetY + normalizedHeight); GL.Vertex3(0, 1, 0);
         GL.End();
         
         GL.PopMatrix();
         RenderTexture.active = null;
     }
     
-    // New method: Process frame with steerable pyramid
-    private void ProcessFrameWithSteerablePyramid(RenderTexture source, RenderTexture destination)
+    private void ApplyWindowingFunction(RenderTexture source, RenderTexture destination)
     {
-        // Convert current frame to YIQ
-        Graphics.Blit(textures["sourceTexture"], textures["yiqTexture"], rgbToYiqMaterial);
-        PadTexture(textures["yiqTexture"], textures["paddedTexture"]);
-        ExtractYChannel(textures["paddedTexture"], textures["yChannelTexture"]);
-        
-        // Convert previous frame to YIQ
-        Graphics.Blit(textures["previousSourceTexture"], textures["previousYiqTexture"], rgbToYiqMaterial);
-        PadTexture(textures["previousYiqTexture"], textures["previousPaddedTexture"]);
-        ExtractYChannel(textures["previousPaddedTexture"], textures["previousYChannelTexture"]);
-        
-        // Transform to frequency domain
-        PerformFFT(textures["yChannelTexture"], complexBuffer1, complexBuffer2, textures["currentDFTTexture"]);
-        PerformFFT(textures["previousYChannelTexture"], previousComplexBuffer1, previousComplexBuffer2, textures["previousDFTTexture"]);
-        
-        // Decompose into steerable pyramid
-        DecomposeIntoPyramid(textures["currentDFTTexture"], currentPyramidLevels);
-        DecomposeIntoPyramid(textures["previousDFTTexture"], previousPyramidLevels);
-        
-        // Extract residuals
-        ExtractResiduals(textures["currentDFTTexture"]);
-        
-        // Process phase differences at each pyramid level
-        ProcessPyramidPhaseDifferences();
-        
-        // Reconstruct from pyramid
-        ReconstructFromPyramid(textures["pyramidReconstructionDFT"]);
-        
-        // Perform IFFT
-        PerformIFFT(textures["pyramidReconstructionDFT"], textures["processedYTexture"]);
-        
-        // Apply anti-aliasing
-        ApplyAntiAliasing(textures["processedYTexture"], textures["processedYTexture"]);
-        
-        // Combine channels
-        CombineYIQChannels(textures["processedYTexture"], textures["paddedTexture"], textures["destinationTexture"]);
-        
-        // Set YIQ adjustment parameters
-        yiqToRgbMaterial.SetFloat("_YMultiplier", yMultiplier);
-        yiqToRgbMaterial.SetFloat("_IMultiplier", iMultiplier);
-        yiqToRgbMaterial.SetFloat("_QMultiplier", qMultiplier);
-        
-        // Convert back to RGB
-        Graphics.Blit(textures["destinationTexture"], textures["finalTexture"], yiqToRgbMaterial);
-        
-        // Crop to original size
-        CropTexture(textures["finalTexture"], destination);
-        
-        // Store current frame for next iteration
-        Graphics.Blit(textures["sourceTexture"], textures["previousSourceTexture"]);
-        
-        // Swap pyramid levels
-        var temp = currentPyramidLevels;
-        currentPyramidLevels = previousPyramidLevels;
-        previousPyramidLevels = temp;
+        if (windowingMaterial == null) { Graphics.Blit(source, destination); return; }
+        RenderTexture temp = RenderTexture.GetTemporary(source.descriptor);
+        windowingMaterial.SetFloat("_Width", width);
+        windowingMaterial.SetFloat("_Height", height);
+        Graphics.Blit(source, temp, windowingMaterial);
+        Graphics.Blit(temp, destination);
+        RenderTexture.ReleaseTemporary(temp);
     }
     
-    // New method: Decompose image into steerable pyramid
-    private void DecomposeIntoPyramid(RenderTexture dftTexture, List<RenderTexture> pyramidLevels)
+    private void ApplyAntiAliasing(RenderTexture source, RenderTexture destination)
     {
-        if (pyramidDecomposeComputeShader == null) return;
-        
-        pyramidDecomposeComputeShader.SetInt("_Width", width);
-        pyramidDecomposeComputeShader.SetInt("_Height", height);
-        pyramidDecomposeComputeShader.SetInt("_NumOrientations", numOrientations);
-        pyramidDecomposeComputeShader.SetFloat("_Gain", 1.0f / pyramidLevels);
-        
-        // Decompose each level (excluding first and last as per PyTorch reference)
-        for (int level = 0; level < pyramidLevels; level++)
-        {
-            pyramidDecomposeComputeShader.SetInt("_ScaleIndex", level);
-            pyramidDecomposeComputeShader.SetTexture(decomposeLevelKernel, "_InputDFT", dftTexture);
-            pyramidDecomposeComputeShader.SetTexture(decomposeLevelKernel, "_BandPassFilter", pyramidFilters[level]);
-            pyramidDecomposeComputeShader.SetTexture(decomposeLevelKernel, "_PyramidLevel", pyramidLevels[level]);
-            
-            DispatchCompute(pyramidDecomposeComputeShader, decomposeLevelKernel, width, height);
-        }
+        if (blurMaterial == null) { Graphics.Blit(source, destination); return; }
+        RenderTexture temp = RenderTexture.GetTemporary(source.descriptor);
+        blurMaterial.SetFloat("_BlurSize", 0.5f);
+        blurMaterial.SetVector("_Direction", new Vector4(1, 0, 0, 0));
+        Graphics.Blit(source, temp, blurMaterial);
+        blurMaterial.SetVector("_Direction", new Vector4(0, 1, 0, 0));
+        Graphics.Blit(temp, destination, blurMaterial);
+        RenderTexture.ReleaseTemporary(temp);
     }
     
-    // New method: Extract low-pass and high-pass residuals
-    private void ExtractResiduals(RenderTexture dftTexture)
+    private void ExtractYChannel(RenderTexture yiq, RenderTexture y) { Graphics.Blit(yiq, y, extractYMaterial); }
+    
+    private void CombineYIQChannels(RenderTexture y, RenderTexture iq, RenderTexture output)
     {
-        if (pyramidDecomposeComputeShader == null) return;
-        
-        pyramidDecomposeComputeShader.SetInt("_Width", width);
-        pyramidDecomposeComputeShader.SetInt("_Height", height);
-        
-        // Extract low-pass residual
-        pyramidDecomposeComputeShader.SetTexture(extractResidualLowPassKernel, "_InputDFT", dftTexture);
-        pyramidDecomposeComputeShader.SetTexture(extractResidualLowPassKernel, "_LowPassFilter", textures["pyramidLowPassFilter"]);
-        pyramidDecomposeComputeShader.SetTexture(extractResidualLowPassKernel, "_OutputDFT", textures["lowPassResidualDFT"]);
-        DispatchCompute(pyramidDecomposeComputeShader, extractResidualLowPassKernel, width, height);
-        
-        // Extract high-pass residual
-        pyramidDecomposeComputeShader.SetTexture(extractResidualHighPassKernel, "_InputDFT", dftTexture);
-        pyramidDecomposeComputeShader.SetTexture(extractResidualHighPassKernel, "_HighPassFilter", textures["pyramidHighPassFilter"]);
-        pyramidDecomposeComputeShader.SetTexture(extractResidualHighPassKernel, "_OutputDFT", textures["highPassResidualDFT"]);
-        DispatchCompute(pyramidDecomposeComputeShader, extractResidualHighPassKernel, width, height);
+        combineChannelsMaterial.SetTexture("_YTex", y);
+        combineChannelsMaterial.SetTexture("_IQTex", iq);
+        Graphics.Blit(null, output, combineChannelsMaterial);
     }
     
-    // New method: Process phase differences for each pyramid level
-    private void ProcessPyramidPhaseDifferences()
+    private void ConvertComplexToMagnitude(ComputeBuffer buf, RenderTexture tex)
     {
-        if (pyramidReconstructComputeShader == null) return;
-        
-        pyramidReconstructComputeShader.SetInt("_Width", width);
-        pyramidReconstructComputeShader.SetInt("_Height", height);
-        pyramidReconstructComputeShader.SetInt("_NumOrientations", numOrientations);
-        pyramidReconstructComputeShader.SetFloat("_PhaseScale", phaseScale);
-        pyramidReconstructComputeShader.SetFloat("_MagnitudeThreshold", magnitudeThreshold);
-        
-        // Process each pyramid level (excluding first and last as per reference)
-        for (int level = 1; level < pyramidLevels - 1; level++)
-        {
-            pyramidReconstructComputeShader.SetInt("_ScaleIndex", level);
-            pyramidReconstructComputeShader.SetTexture(processPhaseDifferencePerLevelKernel, "_CurrentPyramidLevel", currentPyramidLevels[level]);
-            pyramidReconstructComputeShader.SetTexture(processPhaseDifferencePerLevelKernel, "_PreviousPyramidLevel", previousPyramidLevels[level]);
-            pyramidReconstructComputeShader.SetTexture(processPhaseDifferencePerLevelKernel, "_BandPassFilter", pyramidFilters[level]);
-            pyramidReconstructComputeShader.SetTexture(processPhaseDifferencePerLevelKernel, "_ProcessedPyramidLevel", processedPyramidLevels[level]);
-            
-            DispatchCompute(pyramidReconstructComputeShader, processPhaseDifferencePerLevelKernel, width, height);
-        }
-        
-        // Copy unprocessed levels
-        Graphics.Blit(currentPyramidLevels[0], processedPyramidLevels[0]);
-        if (pyramidLevels > 1)
-        {
-            Graphics.Blit(currentPyramidLevels[pyramidLevels - 1], processedPyramidLevels[pyramidLevels - 1]);
-        }
+        fftComputeShader.SetBuffer(convertComplexMagToTexScaledKernel, "Src", buf);
+        fftComputeShader.SetTexture(convertComplexMagToTexScaledKernel, "DstTex", tex);
+        DispatchCompute(fftComputeShader, convertComplexMagToTexScaledKernel, width, height);
     }
     
-    // New method: Reconstruct from pyramid
-    private void ReconstructFromPyramid(RenderTexture outputDFT)
+    private void ConvertComplexToPhase(ComputeBuffer buf, RenderTexture tex)
     {
-        if (pyramidReconstructComputeShader == null) return;
-        
-        pyramidReconstructComputeShader.SetInt("_Width", width);
-        pyramidReconstructComputeShader.SetInt("_Height", height);
-        pyramidReconstructComputeShader.SetInt("_NumOrientations", numOrientations);
-        pyramidReconstructComputeShader.SetInt("_AddHighPass", includeHighPassInReconstruction ? 1 : 0);
-        
-        // Initialize reconstruction buffer
-        pyramidReconstructComputeShader.SetTexture(initializeReconstructionKernel, "_ReconstructionDFT", outputDFT);
-        DispatchCompute(pyramidReconstructComputeShader, initializeReconstructionKernel, width, height);
-        
-        // Accumulate pyramid levels
-        for (int level = 0; level < pyramidLevels; level++)
-        {
-            pyramidReconstructComputeShader.SetInt("_ScaleIndex", level);
-            pyramidReconstructComputeShader.SetTexture(accumulatePyramidLevelKernel, "_ProcessedPyramidLevel", processedPyramidLevels[level]);
-            pyramidReconstructComputeShader.SetTexture(accumulatePyramidLevelKernel, "_BandPassFilter", pyramidFilters[level]);
-            pyramidReconstructComputeShader.SetTexture(accumulatePyramidLevelKernel, "_ReconstructionDFT", outputDFT);
-            
-            DispatchCompute(pyramidReconstructComputeShader, accumulatePyramidLevelKernel, width, height);
-        }
-        
-        // Add residuals
-        pyramidReconstructComputeShader.SetTexture(addResidualsKernel, "_LowPassResidualDFT", textures["lowPassResidualDFT"]);
-        pyramidReconstructComputeShader.SetTexture(addResidualsKernel, "_HighPassResidualDFT", textures["highPassResidualDFT"]);
-        pyramidReconstructComputeShader.SetTexture(addResidualsKernel, "_LowPassFilter", textures["pyramidLowPassFilter"]);
-        pyramidReconstructComputeShader.SetTexture(addResidualsKernel, "_HighPassFilter", textures["pyramidHighPassFilter"]);
-        pyramidReconstructComputeShader.SetTexture(addResidualsKernel, "_ReconstructionDFT", outputDFT);
-        
-        DispatchCompute(pyramidReconstructComputeShader, addResidualsKernel, width, height);
+        fftComputeShader.SetBuffer(convertComplexPhaseToTexKernel, "Src", buf);
+        fftComputeShader.SetTexture(convertComplexPhaseToTexKernel, "DstTex", tex);
+        DispatchCompute(fftComputeShader, convertComplexPhaseToTexKernel, width, height);
     }
-    
-    // Updated method - now passes bandpass filter parameters to phase difference shader
+
+    private void ShowSplitScreen(RenderTexture left, RenderTexture right, RenderTexture dest)
+    {
+        RenderTexture.active = dest;
+        GL.Clear(true, true, Color.black);
+        GL.PushMatrix();
+        GL.LoadOrtho();
+        
+        padMaterial.SetPass(0);
+
+        // Left
+        padMaterial.SetTexture("_MainTex", left);
+        GL.Begin(GL.QUADS);
+        GL.TexCoord2(0, 0); GL.Vertex3(0, 0, 0);
+        GL.TexCoord2(1, 0); GL.Vertex3(0.5f, 0, 0);
+        GL.TexCoord2(1, 1); GL.Vertex3(0.5f, 1, 0);
+        GL.TexCoord2(0, 1); GL.Vertex3(0, 1, 0);
+        GL.End();
+
+        // Right
+        padMaterial.SetTexture("_MainTex", right);
+        GL.Begin(GL.QUADS);
+        GL.TexCoord2(0, 0); GL.Vertex3(0.5f, 0, 0);
+        GL.TexCoord2(1, 0); GL.Vertex3(1, 0, 0);
+        GL.TexCoord2(1, 1); GL.Vertex3(1, 1, 0);
+        GL.TexCoord2(0, 1); GL.Vertex3(0.5f, 1, 0);
+        GL.End();
+
+        GL.PopMatrix();
+        RenderTexture.active = null;
+    }
+
     private void ProcessPhaseDifferenceWithComputeShader(RenderTexture currentDFT, RenderTexture previousDFT, RenderTexture outputDFT)
     {
-        if (phaseDifferenceComputeShader == null)
-        {
-            Debug.LogError("Phase Difference Compute Shader is not assigned!");
-            Graphics.Blit(currentDFT, outputDFT);
-            return;
-        }
-        
-        // Set input/output textures
         phaseDifferenceComputeShader.SetTexture(processPhaseDifferenceKernel, "_CurrentDFT", currentDFT);
         phaseDifferenceComputeShader.SetTexture(processPhaseDifferenceKernel, "_PreviousDFT", previousDFT);
         phaseDifferenceComputeShader.SetTexture(processPhaseDifferenceKernel, "_OutputDFT", outputDFT);
-        
-        // Phase difference parameters
         phaseDifferenceComputeShader.SetFloat("_PhaseScale", phaseScale);
         phaseDifferenceComputeShader.SetFloat("_MagnitudeThreshold", magnitudeThreshold);
         phaseDifferenceComputeShader.SetFloat("_MagnitudeScale", magnitudeScale);
-        
-        // Dimensions
         phaseDifferenceComputeShader.SetInt("_Width", width);
         phaseDifferenceComputeShader.SetInt("_Height", height);
-        
-        // Bandpass filter parameters - now applied to phase delta
-        phaseDifferenceComputeShader.SetInt("_ApplyBandpassFilter", applyBandpassFilter ? 1 : 0);
+        phaseDifferenceComputeShader.SetBool("_ApplyBandpassFilter", applyBandpassFilter);
         phaseDifferenceComputeShader.SetFloat("_LowFreqCutoff", lowFrequencyCutoff);
         phaseDifferenceComputeShader.SetFloat("_HighFreqCutoff", highFrequencyCutoff);
         phaseDifferenceComputeShader.SetFloat("_FilterSteepness", filterSteepness);
-        
-        // Motion enhancement parameters
         phaseDifferenceComputeShader.SetFloat("_MotionSensitivity", motionSensitivity);
         phaseDifferenceComputeShader.SetFloat("_EdgeEnhancement", enhanceEdges ? edgeEnhancement : 0.0f);
-        
-        // Dispatch compute shader
-        int groupsX = Mathf.CeilToInt(width / (float)GROUP_SIZE_X);
-        int groupsY = Mathf.CeilToInt(height / (float)GROUP_SIZE_Y);
-        
-        phaseDifferenceComputeShader.Dispatch(processPhaseDifferenceKernel, groupsX, groupsY, 1);
+        DispatchCompute(phaseDifferenceComputeShader, processPhaseDifferenceKernel, width, height);
     }
     
-    private void ProcessFrameWithMotionMagnification(RenderTexture source, RenderTexture destination)
+    private void PerformFFT(RenderTexture yTexture, ComputeBuffer out1, ComputeBuffer out2, RenderTexture outTex)
     {
-        // Convert current frame to YIQ
-        Graphics.Blit(textures["sourceTexture"], textures["yiqTexture"], rgbToYiqMaterial);
-        PadTexture(textures["yiqTexture"], textures["paddedTexture"]);
-        ExtractYChannel(textures["paddedTexture"], textures["yChannelTexture"]);
-        
-        // Convert previous frame to YIQ
-        Graphics.Blit(textures["previousSourceTexture"], textures["previousYiqTexture"], rgbToYiqMaterial);
-        PadTexture(textures["previousYiqTexture"], textures["previousPaddedTexture"]);
-        ExtractYChannel(textures["previousPaddedTexture"], textures["previousYChannelTexture"]);
-        
-        // Process with FFT (NO BANDPASS FILTER HERE - it's now in phase difference)
-        PerformFFT(textures["yChannelTexture"], complexBuffer1, complexBuffer2, textures["currentDFTTexture"]);
-        PerformFFT(textures["previousYChannelTexture"], previousComplexBuffer1, previousComplexBuffer2, textures["previousDFTTexture"]);
-        
-        // Use compute shader for phase difference processing (with bandpass on phase delta)
-        ProcessPhaseDifferenceWithComputeShader(textures["currentDFTTexture"], textures["previousDFTTexture"], textures["modifiedDFTTexture"]);
-        
-        // Perform IFFT on the modified DFT texture
-        PerformIFFT(textures["modifiedDFTTexture"], textures["processedYTexture"]);
-        
-        // Apply anti-aliasing
-        ApplyAntiAliasing(textures["processedYTexture"], textures["processedYTexture"]);
-        
-        // Combine channels
-        CombineYIQChannels(textures["processedYTexture"], textures["paddedTexture"], textures["destinationTexture"]);
-        
-        // Set YIQ adjustment parameters
-        yiqToRgbMaterial.SetFloat("_YMultiplier", yMultiplier);
-        yiqToRgbMaterial.SetFloat("_IMultiplier", iMultiplier);
-        yiqToRgbMaterial.SetFloat("_QMultiplier", qMultiplier);
-        
-        // Convert back to RGB
-        Graphics.Blit(textures["destinationTexture"], textures["finalTexture"], yiqToRgbMaterial);
-        
-        // Crop to original size
-        CropTexture(textures["finalTexture"], destination);
-        
-        // Store current frame for next iteration
-        Graphics.Blit(textures["sourceTexture"], textures["previousSourceTexture"]);
-    }
-
-    // FFT Implementation - BANDPASS FILTER REMOVED
-    private void PerformFFT(RenderTexture yTexture, ComputeBuffer outputBuffer1, ComputeBuffer outputBuffer2, RenderTexture outputTexture)
-    {
-        fftComputeShader.SetInt("WIDTH", width);
-        fftComputeShader.SetInt("HEIGHT", height);
-
+        fftComputeShader.SetInt("WIDTH", width); fftComputeShader.SetInt("HEIGHT", height);
         fftComputeShader.SetTexture(convertTexToComplexKernel, "SrcTex", yTexture);
-        fftComputeShader.SetBuffer(convertTexToComplexKernel, "Dst", outputBuffer1);
+        fftComputeShader.SetBuffer(convertTexToComplexKernel, "Dst", out1);
         DispatchCompute(fftComputeShader, convertTexToComplexKernel, width, height);
-
-        fftComputeShader.SetBuffer(centerComplexKernel, "Src", outputBuffer1);
-        fftComputeShader.SetBuffer(centerComplexKernel, "Dst", outputBuffer2);
+        fftComputeShader.SetBuffer(centerComplexKernel, "Src", out1);
+        fftComputeShader.SetBuffer(centerComplexKernel, "Dst", out2);
         DispatchCompute(fftComputeShader, centerComplexKernel, width, height);
-
-        fftComputeShader.SetBuffer(bitRevByRowKernel, "Src", outputBuffer2);
-        fftComputeShader.SetBuffer(bitRevByRowKernel, "Dst", outputBuffer1);
+        fftComputeShader.SetBuffer(bitRevByRowKernel, "Src", out2);
+        fftComputeShader.SetBuffer(bitRevByRowKernel, "Dst", out1);
         fftComputeShader.SetBuffer(bitRevByRowKernel, "BitRevIndices", bitRevIndicesBuffer);
         DispatchCompute(fftComputeShader, bitRevByRowKernel, width, height);
-
-        ComputeBuffer src = outputBuffer1;
-        ComputeBuffer dst = outputBuffer2;
-        
-        for (int stride = 2; stride <= width; stride *= 2)
+        ComputeBuffer src = out1, dst = out2;
+        for (int s = 2; s <= width; s *= 2)
         {
-            fftComputeShader.SetInt("BUTTERFLY_STRIDE", stride);
+            fftComputeShader.SetInt("BUTTERFLY_STRIDE", s);
             fftComputeShader.SetBuffer(butterflyByRowKernel, "Src", src);
             fftComputeShader.SetBuffer(butterflyByRowKernel, "Dst", dst);
             fftComputeShader.SetBuffer(butterflyByRowKernel, "TwiddleFactors", twiddleFactorsBuffer);
             DispatchCompute(fftComputeShader, butterflyByRowKernel, width, height);
-            
-            ComputeBuffer temp = src;
-            src = dst;
-            dst = temp;
+            (src, dst) = (dst, src);
         }
-
         fftComputeShader.SetInt("N", height);
         fftComputeShader.SetBuffer(computeBitRevIndicesKernel, "BitRevIndices", bitRevIndicesBuffer);
         DispatchCompute(fftComputeShader, computeBitRevIndicesKernel, height, 1);
-
         fftComputeShader.SetBuffer(computeTwiddleFactorsKernel, "TwiddleFactors", twiddleFactorsBuffer);
         DispatchCompute(fftComputeShader, computeTwiddleFactorsKernel, height / 2, 1);
-
         fftComputeShader.SetBuffer(bitRevByColKernel, "Src", src);
         fftComputeShader.SetBuffer(bitRevByColKernel, "Dst", dst);
         fftComputeShader.SetBuffer(bitRevByColKernel, "BitRevIndices", bitRevIndicesBuffer);
         DispatchCompute(fftComputeShader, bitRevByColKernel, width, height);
-
-        ComputeBuffer temp2 = src;
-        src = dst;
-        dst = temp2;
-
-        for (int stride = 2; stride <= height; stride *= 2)
+        (src, dst) = (dst, src);
+        for (int s = 2; s <= height; s *= 2)
         {
-            fftComputeShader.SetInt("BUTTERFLY_STRIDE", stride);
+            fftComputeShader.SetInt("BUTTERFLY_STRIDE", s);
             fftComputeShader.SetBuffer(butterflyByColKernel, "Src", src);
             fftComputeShader.SetBuffer(butterflyByColKernel, "Dst", dst);
             fftComputeShader.SetBuffer(butterflyByColKernel, "TwiddleFactors", twiddleFactorsBuffer);
             DispatchCompute(fftComputeShader, butterflyByColKernel, width, height);
-            
-            ComputeBuffer temp = src;
-            src = dst;
-            dst = temp;
+            (src, dst) = (dst, src);
         }
-
         fftComputeShader.SetBuffer(convertComplexToTexRGKernel, "Src", src);
-        fftComputeShader.SetTexture(convertComplexToTexRGKernel, "DstTex", outputTexture);
+        fftComputeShader.SetTexture(convertComplexToTexRGKernel, "DstTex", outTex);
         DispatchCompute(fftComputeShader, convertComplexToTexRGKernel, width, height);
     }
     
-    private void ConvertTextureToBuffer(RenderTexture dftTexture, ComputeBuffer outputBuffer)
+    private void ConvertTextureToBuffer(RenderTexture dftTex, ComputeBuffer outBuf)
     {
-        fftComputeShader.SetInt("WIDTH", width);
-        fftComputeShader.SetInt("HEIGHT", height);
-        fftComputeShader.SetTexture(convertTextureToComplexKernel, "SrcTex", dftTexture);
-        fftComputeShader.SetBuffer(convertTextureToComplexKernel, "Dst", outputBuffer);
+        fftComputeShader.SetInt("WIDTH", width); fftComputeShader.SetInt("HEIGHT", height);
+        fftComputeShader.SetTexture(convertTextureToComplexKernel, "SrcTex", dftTex);
+        fftComputeShader.SetBuffer(convertTextureToComplexKernel, "Dst", outBuf);
         DispatchCompute(fftComputeShader, convertTextureToComplexKernel, width, height);
     }
-    
-    private void PerformIFFT(RenderTexture dftTexture, RenderTexture outputTexture)
+
+    private void PerformIFFT(RenderTexture dftTex, RenderTexture outTex)
     {
-        ConvertTextureToBuffer(dftTexture, complexBuffer1);
-        
-        fftComputeShader.SetInt("WIDTH", width);
-        fftComputeShader.SetInt("HEIGHT", height);
+        ConvertTextureToBuffer(dftTex, complexBuffer1);
+        fftComputeShader.SetInt("WIDTH", width); fftComputeShader.SetInt("HEIGHT", height);
         fftComputeShader.SetBuffer(conjugateComplexKernel, "Src", complexBuffer1);
         fftComputeShader.SetBuffer(conjugateComplexKernel, "Dst", complexBuffer2);
         DispatchCompute(fftComputeShader, conjugateComplexKernel, width, height);
-        
         fftComputeShader.SetInt("N", width);
+        PrecomputeFFTData();
         fftComputeShader.SetBuffer(bitRevByRowKernel, "Src", complexBuffer2);
         fftComputeShader.SetBuffer(bitRevByRowKernel, "Dst", complexBuffer1);
         fftComputeShader.SetBuffer(bitRevByRowKernel, "BitRevIndices", bitRevIndicesBuffer);
         DispatchCompute(fftComputeShader, bitRevByRowKernel, width, height);
-
-        ComputeBuffer src = complexBuffer1;
-        ComputeBuffer dst = complexBuffer2;
-        
-        for (int stride = 2; stride <= width; stride *= 2)
+        ComputeBuffer src = complexBuffer1, dst = complexBuffer2;
+        for (int s = 2; s <= width; s *= 2)
         {
-            fftComputeShader.SetInt("BUTTERFLY_STRIDE", stride);
+            fftComputeShader.SetInt("BUTTERFLY_STRIDE", s);
             fftComputeShader.SetBuffer(butterflyByRowKernel, "Src", src);
             fftComputeShader.SetBuffer(butterflyByRowKernel, "Dst", dst);
             fftComputeShader.SetBuffer(butterflyByRowKernel, "TwiddleFactors", twiddleFactorsBuffer);
             DispatchCompute(fftComputeShader, butterflyByRowKernel, width, height);
-            
-            ComputeBuffer temp = src;
-            src = dst;
-            dst = temp;
+            (src, dst) = (dst, src);
         }
-
         fftComputeShader.SetInt("N", height);
+        fftComputeShader.SetBuffer(computeBitRevIndicesKernel, "BitRevIndices", bitRevIndicesBuffer);
+        DispatchCompute(fftComputeShader, computeBitRevIndicesKernel, height, 1);
+        fftComputeShader.SetBuffer(computeTwiddleFactorsKernel, "TwiddleFactors", twiddleFactorsBuffer);
+        DispatchCompute(fftComputeShader, computeTwiddleFactorsKernel, height/2, 1);
         fftComputeShader.SetBuffer(bitRevByColKernel, "Src", src);
         fftComputeShader.SetBuffer(bitRevByColKernel, "Dst", dst);
         fftComputeShader.SetBuffer(bitRevByColKernel, "BitRevIndices", bitRevIndicesBuffer);
         DispatchCompute(fftComputeShader, bitRevByColKernel, width, height);
-
-        ComputeBuffer temp2 = src;
-        src = dst;
-        dst = temp2;
-
-        for (int stride = 2; stride <= height; stride *= 2)
+        (src, dst) = (dst, src);
+        for (int s = 2; s <= height; s *= 2)
         {
-            fftComputeShader.SetInt("BUTTERFLY_STRIDE", stride);
+            fftComputeShader.SetInt("BUTTERFLY_STRIDE", s);
             fftComputeShader.SetBuffer(butterflyByColKernel, "Src", src);
             fftComputeShader.SetBuffer(butterflyByColKernel, "Dst", dst);
             fftComputeShader.SetBuffer(butterflyByColKernel, "TwiddleFactors", twiddleFactorsBuffer);
             DispatchCompute(fftComputeShader, butterflyByColKernel, width, height);
-            
-            ComputeBuffer temp = src;
-            src = dst;
-            dst = temp;
+            (src, dst) = (dst, src);
         }
-
         fftComputeShader.SetBuffer(conjugateComplexKernel, "Src", src);
         fftComputeShader.SetBuffer(conjugateComplexKernel, "Dst", dst);
         DispatchCompute(fftComputeShader, conjugateComplexKernel, width, height);
-
-        ComputeBuffer temp3 = src;
-        src = dst;
-        dst = temp3;
-
+        (src, dst) = (dst, src);
         fftComputeShader.SetBuffer(divideComplexByDimensionsKernel, "Src", src);
         fftComputeShader.SetBuffer(divideComplexByDimensionsKernel, "Dst", dst);
         DispatchCompute(fftComputeShader, divideComplexByDimensionsKernel, width, height);
-
-        ComputeBuffer temp4 = src;
-        src = dst;
-        dst = temp4;
-
+        (src, dst) = (dst, src);
         fftComputeShader.SetBuffer(centerComplexKernel, "Src", src);
         fftComputeShader.SetBuffer(centerComplexKernel, "Dst", dst);
         DispatchCompute(fftComputeShader, centerComplexKernel, width, height);
-
-        fftComputeShader.SetBuffer(convertComplexMagToTexKernel, "Src", dst);
-        fftComputeShader.SetTexture(convertComplexMagToTexKernel, "DstTex", outputTexture);
+        (src, dst) = (dst, src);
+        fftComputeShader.SetBuffer(convertComplexMagToTexKernel, "Src", src);
+        fftComputeShader.SetTexture(convertComplexMagToTexKernel, "DstTex", outTex);
         DispatchCompute(fftComputeShader, convertComplexMagToTexKernel, width, height);
+    }
+    
+    private void CreateTexture(string name, int w, int h, RenderTextureFormat format)
+    {
+        if (textures.ContainsKey(name) && textures[name] != null) { textures[name].Release(); }
+        RenderTexture tex = new RenderTexture(w, h, 0, format) { enableRandomWrite = true };
+        tex.Create();
+        textures[name] = tex;
+    }
+
+    private void PrecomputeFFTData()
+    {
+        fftComputeShader.SetInt("N", width);
+        fftComputeShader.SetBuffer(computeBitRevIndicesKernel, "BitRevIndices", bitRevIndicesBuffer);
+        DispatchCompute(fftComputeShader, computeBitRevIndicesKernel, width, 1);
+        fftComputeShader.SetBuffer(computeTwiddleFactorsKernel, "TwiddleFactors", twiddleFactorsBuffer);
+        DispatchCompute(fftComputeShader, computeTwiddleFactorsKernel, width / 2, 1);
+    }
+    
+    private void DispatchCompute(ComputeShader shader, int kernel, int w, int h)
+    {
+        shader.GetKernelThreadGroupSizes(kernel, out uint tx, out uint ty, out _);
+        int groupsX = Mathf.CeilToInt(w / (float)tx);
+        int groupsY = Mathf.CeilToInt(h / (float)ty);
+        shader.Dispatch(kernel, groupsX, groupsY, 1);
+    }
+    
+    private void InitializeFFTKernels()
+    {
+        computeBitRevIndicesKernel = fftComputeShader.FindKernel("ComputeBitRevIndices");
+        computeTwiddleFactorsKernel = fftComputeShader.FindKernel("ComputeTwiddleFactors");
+        convertTexToComplexKernel = fftComputeShader.FindKernel("ConvertTexToComplex");
+        convertTextureToComplexKernel = fftComputeShader.FindKernel("ConvertTextureToComplex");
+        convertComplexToTexRGKernel = fftComputeShader.FindKernel("ConvertComplexToTexRG");
+        convertComplexMagToTexKernel = fftComputeShader.FindKernel("ConvertComplexMagToTex");
+        convertComplexMagToTexScaledKernel = fftComputeShader.FindKernel("ConvertComplexMagToTexScaled");
+        convertComplexPhaseToTexKernel = fftComputeShader.FindKernel("ConvertComplexPhaseToTex");
+        centerComplexKernel = fftComputeShader.FindKernel("CenterComplex");
+        conjugateComplexKernel = fftComputeShader.FindKernel("ConjugateComplex");
+        divideComplexByDimensionsKernel = fftComputeShader.FindKernel("DivideComplexByDimensions");
+        bitRevByRowKernel = fftComputeShader.FindKernel("BitRevByRow");
+        bitRevByColKernel = fftComputeShader.FindKernel("BitRevByCol");
+        butterflyByRowKernel = fftComputeShader.FindKernel("ButterflyByRow");
+        butterflyByColKernel = fftComputeShader.FindKernel("ButterflyByCol");
+    }
+
+    private void InitializePyramidKernels()
+    {
+        generatePyramidFiltersKernel = pyramidOperationsShader.FindKernel("GeneratePyramidFilters");
+        applyPyramidFilterKernel = pyramidOperationsShader.FindKernel("ApplyPyramidFilter");
+        accumulatePyramidLevelKernel = pyramidOperationsShader.FindKernel("AccumulatePyramidLevel");
+        initializeAccumulatorKernel = pyramidOperationsShader.FindKernel("InitializeAccumulator");
+        processPyramidPhaseDifferenceKernel = pyramidPhaseShader.FindKernel("ProcessPyramidPhaseDifference");
+    }
+
+    private void InitializePyramidTextures()
+    {
+        ReleasePyramidTextures();
+        for (int i = 0; i < pyramidLevels; i++)
+        {
+            pyramidFilters.Add(CreateRWTexture(width, height, RenderTextureFormat.RFloat));
+            currentPyramidLevels.Add(CreateRWTexture(width, height, RenderTextureFormat.ARGBFloat));
+            previousPyramidLevels.Add(CreateRWTexture(width, height, RenderTextureFormat.ARGBFloat));
+            processedPyramidLevels.Add(CreateRWTexture(width, height, RenderTextureFormat.ARGBFloat));
+        }
+    }
+    
+    private RenderTexture CreateRWTexture(int w, int h, RenderTextureFormat format)
+    {
+        var tex = new RenderTexture(w, h, 0, format) { enableRandomWrite = true };
+        tex.Create();
+        return tex;
+    }
+
+    private void GeneratePyramidFilters()
+    {
+        if (pyramidOperationsShader == null) return;
+        for (int i = 0; i < pyramidLevels; i++)
+        {
+            pyramidOperationsShader.SetInt("_FilterIndex", i);
+            pyramidOperationsShader.SetInt("_NumFilters", pyramidLevels);
+            pyramidOperationsShader.SetInt("_Width", width);
+            pyramidOperationsShader.SetInt("_Height", height);
+            pyramidOperationsShader.SetFloat("_MinFreq", minFrequency);
+            pyramidOperationsShader.SetFloat("_MaxFreq", maxFrequency);
+            pyramidOperationsShader.SetTexture(generatePyramidFiltersKernel, "_FilterTexture", pyramidFilters[i]);
+            DispatchCompute(pyramidOperationsShader, generatePyramidFiltersKernel, width, height);
+        }
+    }
+    
+    private void ReleasePyramidTextures()
+    {
+        pyramidFilters.ForEach(t => { if(t) t.Release(); });
+        currentPyramidLevels.ForEach(t => { if(t) t.Release(); });
+        previousPyramidLevels.ForEach(t => { if(t) t.Release(); });
+        processedPyramidLevels.ForEach(t => { if(t) t.Release(); });
+        pyramidFilters.Clear();
+        currentPyramidLevels.Clear();
+        previousPyramidLevels.Clear();
+        processedPyramidLevels.Clear();
+    }
+
+    private void ReleaseBuffer(ref ComputeBuffer buffer)
+    {
+        if (buffer != null) { buffer.Release(); buffer = null; }
+    }
+
+    private void DestroyMaterial(ref Material mat)
+    {
+        if (mat != null) { Destroy(mat); mat = null; }
     }
 }

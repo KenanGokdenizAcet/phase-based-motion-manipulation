@@ -69,21 +69,18 @@
     <Compile Include="Assets/Scripts/MotionMagnificationProcessor.cs" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="Assets/Shaders/SteerablePyramidFilters.compute" />
-    <None Include="Assets/Shaders/SteerablePyramid.compute" />
     <None Include="Assets/Shaders/GaussianBlur.shader" />
     <None Include="Assets/Shaders/FFTDisplay.shader" />
     <None Include="Assets/Shaders/RGBToYIQ.shader" />
     <None Include="Assets/Shaders/ComplexToTexture.shader" />
-    <None Include="Assets/Shaders/TemporalFilter.compute" />
-    <None Include="Assets/Shaders/SteerablePyramidDecompose.compute" />
     <None Include="Assets/Shaders/YIQToRGB.shader" />
     <None Include="Assets/Shaders/PhaseWrap.shader" />
+    <None Include="Assets/Shaders/PyramidOperations.compute" />
     <None Include="Assets/Shaders/TextureToComplex.shader" />
     <None Include="Assets/Shaders/BlitCopy.shader" />
-    <None Include="Assets/Shaders/SteerablePyramidReconstruct.compute" />
     <None Include="Assets/Shaders/WindowingFunction.shader" />
     <None Include="Assets/Shaders/CombineYIQChannels.shader" />
+    <None Include="Assets/Shaders/PyramidPhaseDifference.compute" />
     <None Include="Assets/Shaders/PhaseDifferenceComputeShader.compute" />
     <None Include="Assets/Shaders/ExtractYChannel.shader" />
     <None Include="Assets/Shaders/FFT.compute" />
