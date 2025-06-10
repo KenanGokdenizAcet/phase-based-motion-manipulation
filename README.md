@@ -25,4 +25,3 @@ The `Phase Scale` parameter in the `MotionMagnificationProcess` component contro
 If you experience issues:
 1. Verify you're using the Built-in Render Pipeline
 2. Check that all shader materials are properly assigned in the inspector
-3. Ensure your graphics card supports compute shaders
