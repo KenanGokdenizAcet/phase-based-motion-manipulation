@@ -12,6 +12,7 @@ Recordings/
 [Bb]uilds/
 
 # IDE generated
+.cursorignore
 .vs/
 .vscode/
 .idea/
