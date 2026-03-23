@@ -16,9 +16,13 @@ public class MotionMagnificationProcessor : MonoBehaviour
     // Pyramid parameters
     [Header("Pyramid Decomposition Settings")]
     [SerializeField] private bool usePyramidDecomposition = true;
-    [SerializeField] private int pyramidLevels = 5;
+    [SerializeField] private int pyramidLevels = 5;      // number of scale levels (includes highpass + lowpass residuals)
+    [SerializeField] [Range(2, 8)] private int numOrientations = 4; // K orientations per scale band (Complex Steerable Pyramid)
     [SerializeField] [Range(0.05f, 0.45f)] private float minFrequency = 0.05f;
     [SerializeField] [Range(0.1f, 0.5f)] private float maxFrequency = 0.45f;
+
+    // Total filter count: (pyramidLevels-2) oriented scale bands * numOrientations + 2 residuals
+    private int TotalFilters => (pyramidLevels - 2) * numOrientations + 2;
 
     // YIQ adjustment parameters
     private float yMultiplier = 1.0f;
@@ -79,7 +83,7 @@ public class MotionMagnificationProcessor : MonoBehaviour
     {
         if (isInitialized && usePyramidDecomposition)
         {
-            if (pyramidFilters.Count != pyramidLevels || pyramidFilters.Count == 0)
+            if (pyramidFilters.Count != TotalFilters || pyramidFilters.Count == 0)
             {
                 InitializePyramidTextures();
             }
@@ -155,7 +159,8 @@ public class MotionMagnificationProcessor : MonoBehaviour
         PerformFFT(textures["yChannelTexture"], complexBuffer1, complexBuffer2, textures["currentDFTTexture"]);
         PerformFFT(textures["previousYChannelTexture"], previousComplexBuffer1, previousComplexBuffer2, textures["previousDFTTexture"]);
 
-        for (int i = 0; i < pyramidLevels; i++)
+        int totalFilters = TotalFilters;
+        for (int i = 0; i < totalFilters; i++)
         {
             pyramidOperationsShader.SetTexture(applyPyramidFilterKernel, "_InputDFT", textures["currentDFTTexture"]);
             pyramidOperationsShader.SetTexture(applyPyramidFilterKernel, "_FilterTexture", pyramidFilters[i]);
@@ -168,7 +173,7 @@ public class MotionMagnificationProcessor : MonoBehaviour
             DispatchCompute(pyramidOperationsShader, applyPyramidFilterKernel, width, height);
         }
 
-        for (int i = 0; i < pyramidLevels; i++)
+        for (int i = 0; i < totalFilters; i++)
         {
             pyramidPhaseShader.SetTexture(processPyramidPhaseDifferenceKernel, "_CurrentPyramidLevel", currentPyramidLevels[i]);
             pyramidPhaseShader.SetTexture(processPyramidPhaseDifferenceKernel, "_PreviousPyramidLevel", previousPyramidLevels[i]);
@@ -178,7 +183,7 @@ public class MotionMagnificationProcessor : MonoBehaviour
             pyramidPhaseShader.SetInt("_Width", width);
             pyramidPhaseShader.SetInt("_Height", height);
             pyramidPhaseShader.SetInt("_CurrentLevel", i);
-            pyramidPhaseShader.SetInt("_TotalLevels", pyramidLevels);
+            pyramidPhaseShader.SetInt("_TotalLevels", totalFilters);
             pyramidPhaseShader.SetInt("_ProcessLevel", 1);
             DispatchCompute(pyramidPhaseShader, processPyramidPhaseDifferenceKernel, width, height);
         }
@@ -186,7 +191,7 @@ public class MotionMagnificationProcessor : MonoBehaviour
         pyramidOperationsShader.SetTexture(initializeAccumulatorKernel, "_AccumulatorTexture", textures["pyramidAccumulator"]);
         DispatchCompute(pyramidOperationsShader, initializeAccumulatorKernel, width, height);
 
-        for (int i = 0; i < pyramidLevels; i++)
+        for (int i = 0; i < totalFilters; i++)
         {
             pyramidOperationsShader.SetTexture(accumulatePyramidLevelKernel, "_InputDFT", processedPyramidLevels[i]);
             pyramidOperationsShader.SetTexture(accumulatePyramidLevelKernel, "_AccumulatorTexture", textures["pyramidAccumulator"]);
@@ -675,13 +680,15 @@ public class MotionMagnificationProcessor : MonoBehaviour
     private void InitializePyramidTextures()
     {
         ReleasePyramidTextures();
-        for (int i = 0; i < pyramidLevels; i++)
+        int totalFilters = TotalFilters;
+        for (int i = 0; i < totalFilters; i++)
         {
             pyramidFilters.Add(CreateRWTexture(width, height, RenderTextureFormat.RFloat));
             currentPyramidLevels.Add(CreateRWTexture(width, height, RenderTextureFormat.ARGBFloat));
             previousPyramidLevels.Add(CreateRWTexture(width, height, RenderTextureFormat.ARGBFloat));
             processedPyramidLevels.Add(CreateRWTexture(width, height, RenderTextureFormat.ARGBFloat));
         }
+        Debug.Log($"[CSP] Initialized {totalFilters} filters: {pyramidLevels - 2} scale bands × {numOrientations} orientations + 2 residuals");
     }
     
     private RenderTexture CreateRWTexture(int w, int h, RenderTextureFormat format)
@@ -694,14 +701,16 @@ public class MotionMagnificationProcessor : MonoBehaviour
     private void GeneratePyramidFilters()
     {
         if (pyramidOperationsShader == null) return;
-        for (int i = 0; i < pyramidLevels; i++)
+        int totalFilters = TotalFilters;
+        pyramidOperationsShader.SetInt("_NumFilters", totalFilters);
+        pyramidOperationsShader.SetInt("_NumOrientations", numOrientations);
+        pyramidOperationsShader.SetInt("_Width", width);
+        pyramidOperationsShader.SetInt("_Height", height);
+        pyramidOperationsShader.SetFloat("_MinFreq", minFrequency);
+        pyramidOperationsShader.SetFloat("_MaxFreq", maxFrequency);
+        for (int i = 0; i < totalFilters; i++)
         {
             pyramidOperationsShader.SetInt("_FilterIndex", i);
-            pyramidOperationsShader.SetInt("_NumFilters", pyramidLevels);
-            pyramidOperationsShader.SetInt("_Width", width);
-            pyramidOperationsShader.SetInt("_Height", height);
-            pyramidOperationsShader.SetFloat("_MinFreq", minFrequency);
-            pyramidOperationsShader.SetFloat("_MaxFreq", maxFrequency);
             pyramidOperationsShader.SetTexture(generatePyramidFiltersKernel, "_FilterTexture", pyramidFilters[i]);
             DispatchCompute(pyramidOperationsShader, generatePyramidFiltersKernel, width, height);
         }

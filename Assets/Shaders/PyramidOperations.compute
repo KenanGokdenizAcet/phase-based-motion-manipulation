@@ -8,8 +8,9 @@
 #define PI 3.14159265359
 
 // Filter generation parameters
-int _FilterIndex;
-int _NumFilters;
+int _FilterIndex;   // 0 = highpass, (_NumFilters-1) = lowpass, rest = oriented bandpass
+int _NumFilters;    // (pyramidLevels-2) * _NumOrientations + 2
+int _NumOrientations; // K (e.g. 4 for 0°/45°/90°/135°)
 int _Width;
 int _Height;
 float _MinFreq;
@@ -21,68 +22,82 @@ RWTexture2D<float4> _OutputDFT;
 RWTexture2D<float> _FilterTexture;
 RWTexture2D<float4> _AccumulatorTexture;
 
-// Generate frequency domain pyramid filters
+// Complex Steerable Pyramid filter generation
+// Oriented bandpass: radial band * cos^(K-1)(theta - pi*k/K)  [bidirectional, uses abs(cos)]
 [numthreads(GROUP_SIZE_X, GROUP_SIZE_Y, 1)]
 void GeneratePyramidFilters(uint3 id : SV_DispatchThreadID)
 {
     if (id.x >= (uint)_Width || id.y >= (uint)_Height)
         return;
-    
-    // Calculate normalized frequency coordinates (-0.5 to 0.5)
+
+    // Normalized frequency coordinates (-0.5 to 0.5)
     float fx = ((float)id.x / (float)_Width) - 0.5;
     float fy = ((float)id.y / (float)_Height) - 0.5;
-    
-    // Calculate radial frequency
-    float freq = sqrt(fx * fx + fy * fy);
-    
+    float r  = sqrt(fx * fx + fy * fy);
+
     float filterValue = 0.0;
-    
+
     if (_FilterIndex == 0)
     {
-        // High-pass filter (for highest frequencies)
-        if (freq > _MaxFreq)
+        // Highpass residual — no orientation, same as before
+        if (r > _MaxFreq)
         {
             filterValue = 1.0;
         }
-        else if (freq > _MaxFreq * 0.8)
+        else if (r > _MaxFreq * 0.8)
         {
-            // Smooth transition
-            float t = (freq - _MaxFreq * 0.8) / (_MaxFreq * 0.2);
+            float t = (r - _MaxFreq * 0.8) / (_MaxFreq * 0.2);
             filterValue = smoothstep(0.0, 1.0, t);
         }
     }
     else if (_FilterIndex == _NumFilters - 1)
     {
-        // Low-pass filter (for lowest frequencies)
-        if (freq < _MinFreq)
+        // Lowpass residual — no orientation, same as before
+        if (r < _MinFreq)
         {
             filterValue = 1.0;
         }
-        else if (freq < _MinFreq * 1.2)
+        else if (r < _MinFreq * 1.2)
         {
-            // Smooth transition
-            float t = (freq - _MinFreq) / (_MinFreq * 0.2);
+            float t = (r - _MinFreq) / (_MinFreq * 0.2);
             filterValue = 1.0 - smoothstep(0.0, 1.0, t);
         }
     }
     else
     {
-        // Band-pass filters for intermediate levels
-        float levelRatio = (float)(_FilterIndex - 1) / (float)(_NumFilters - 3);
+        // Oriented bandpass: decode (bandIdx, orientIdx) from _FilterIndex
+        // Mapping: filterIndex 1..((numBands*K)) => (bandIdx, orientIdx)
+        int fi        = _FilterIndex - 1;
+        int numBands  = (_NumFilters - 2) / _NumOrientations;
+        int bandIdx   = fi / _NumOrientations;   // scale level (0 = highest band)
+        int orientIdx = fi % _NumOrientations;   // orientation index (0 to K-1)
+
+        // --- Radial bandpass (cosine-windowed) ---
+        float levelRatio = (numBands > 1) ? (float)bandIdx / (float)(numBands - 1) : 0.5;
         float centerFreq = _MinFreq * pow(_MaxFreq / _MinFreq, 1.0 - levelRatio);
-        float bandwidth = centerFreq * 0.5; // Adjust bandwidth as needed
-        
+        float bandwidth  = centerFreq * 0.5;
         float lowerBound = centerFreq - bandwidth;
         float upperBound = centerFreq + bandwidth;
-        
-        if (freq >= lowerBound && freq <= upperBound)
+
+        float radialFilter = 0.0;
+        if (r >= lowerBound && r <= upperBound)
         {
-            // Cosine window for smooth transitions
-            float normalized = (freq - lowerBound) / (upperBound - lowerBound);
-            filterValue = 0.5 * (1.0 + cos(2.0 * PI * (normalized - 0.5)));
+            float normalized = (r - lowerBound) / (upperBound - lowerBound);
+            radialFilter = 0.5 * (1.0 + cos(2.0 * PI * (normalized - 0.5)));
         }
+
+        // --- Angular (steerable) component ---
+        // K orientations evenly spanning half-circle: theta_k = pi*k/K
+        // Bidirectional: |cos(theta - theta_k)|^(K-1)
+        // This captures motion in BOTH theta_k and theta_k+180° directions.
+        float theta       = atan2(fy, fx);
+        float orientAngle = PI * (float)orientIdx / (float)_NumOrientations;
+        float c           = abs(cos(theta - orientAngle));
+        float angularFilter = pow(c, (float)(_NumOrientations - 1));
+
+        filterValue = radialFilter * angularFilter;
     }
-    
+
     _FilterTexture[id.xy] = filterValue;
 }
 
